@@ -1,0 +1,67 @@
+.\"
+.\" mpiexec-redir-helper.1
+.\"
+.\" $Id$
+.\"
+.\" Copyright (C) 2006 Pete Wyckoff <pw@osc.edu>
+.\"
+.\" Distributed under the GNU Public License Version 2 or later (See LICENSE)
+.\"
+.TH MPIEXEC-REDIR-HELPER 1 "17 Mar 2006" "OSC MPI utilities" "OSC"
+
+.SH NAME
+mpiexec-redir-helper \- Helper code for mpiexec
+
+.SH SYNOPSIS
+.LP
+.B mpiexec-redir-helper
+\fIexecutable\fR [args]...
+
+.SH DESCRIPTION
+.LP
+This code is a helper binary for
+.BR mpiexec (1),
+used in situations where the resource manager does not support standard
+IO stream redirection.  It should never be invoked directly, but only
+through invocations of mpiexec.
+
+Support inside the resource manager is required to connect the standard
+streams of parallel processes, file descriptors 0, 1, and 2, called stdin,
+stdout, and stderr.  Most recent distributions of OpenPBS and Torque do
+support this and will not need mpiexec-redir-helper.  PBSPro, however, is a
+commercial PBS-like resource manager that does not include support for
+standard stream redirection.  This program is used to work around this
+limitation of PBSPro.
+
+When
+.BR mpiexec (1)
+is configured with the option \fI--enable-pbspro-helper\fR, this binary
+is generated as part of the build process.  Also, mpiexec will invoke
+this binary in front of the user's application code when it spawns the
+tasks.  After connecting the standard streams, mpiexec-redir-helper
+execs the user application, and the parallel job continues as normal.
+
+.SH OPTIONS
+None.
+
+.SH ENVIRONMENT VARIABLES
+.LP
+Mpiexec communicates the hostname on which it is running and up to three
+port numbers to be used for each of the three standard streams via
+environment variables.  They are not intended to be set by users.
+
+.SH DIAGNOSTICS
+.TP 0.6i
+mpiexec-redir-helper: Error: no environment variable "MPIEXEC_HOST".
+.TP
+This program really should only ever be invoked via mpiexec.
+
+.SH AUTHOR
+.LP
+Pete Wyckoff <pw@osc.edu>
+
+.SH SEE ALSO
+.LP
+.BR mpiexec(1),
+.br
+

@@ -1,0 +1,8 @@
+<roll name="torque-roll" interface="4.0">
+	<timestamp time="10:02:45" date="October 16 2013" tz="PDT"/>
+	<color edge="CadetBlue" node="CadetBlue"/>
+	<info version="6.0.0" release="1" arch="x86_64" os="linux"/>
+	<iso maxsize="600" bootable="0" mkisofs="-b isolinux/isolinux.bin -c isolinux/boot.cat -no-emul-boot -boot-load-size 4 -boot-info-table"/>
+	<rpm rolls="0" bin="1" src="1"/>
+	<author name="root" host="tscc-0-62.sdsc.edu"/>
+</roll>

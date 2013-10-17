@@ -1,0 +1,5 @@
+# LSF Definitions
+export LSFDEF  = 
+export LSFIP   = -IFALSE/include -IFALSE/include/lsf
+export LSFLP   = -LFALSE/lib
+export LSFLIB  = 

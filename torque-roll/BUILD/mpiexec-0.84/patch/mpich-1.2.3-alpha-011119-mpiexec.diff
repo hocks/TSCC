@@ -1,0 +1,1395 @@
+diff -x tags -ruN ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_MD.c ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_MD.c
+--- ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_MD.c	Wed Nov  7 14:48:14 2001
++++ ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_MD.c	Sun Dec 23 13:46:56 2001
+@@ -1489,7 +1489,7 @@
+     sem_lock[0].sem_num = L->semnum;
+     if (semop(L->semid,&sem_lock[0],1) < 0)
+     {
+-        p4_error("OOPS: semop lock failed",(int)L->semid);
++        p4_error("OOPS: semop lock failed", -1);
+     }
+ }
+ 
+diff -x tags -ruN ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_alloc.c ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_alloc.c
+--- ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_alloc.c	Mon Sep 24 16:35:06 2001
++++ ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_alloc.c	Thu Dec 20 11:01:49 2001
+@@ -424,14 +424,27 @@
+ 
+ }
+ 
+-struct listener_data *alloc_listener_info(void)
++/*
++ * Builds an empty listener_data structure.  Could just as well
++ * assign this directly to the global listener_info, since it is
++ * used nowhere else.
++ */
++struct listener_data *
++alloc_listener_info(int num)
+ {
+     struct listener_data *l;
++    int i;
+ 
+     l = (struct listener_data *) p4_malloc(sizeof(struct listener_data));
+ 
+     l->listening_fd = -1;
+-    l->slave_fd = -1;
++    l->num = num;
++    l->slave_pid = p4_malloc(num * sizeof(*l->slave_fd));
++    l->slave_fd = p4_malloc(num * sizeof(*l->slave_fd));
++    for (i=0; i<num; i++) {
++	l->slave_pid[i] = -1;
++	l->slave_fd[i] = -1;
++    }
+ 
+     return (l);
+ }
+diff -x tags -ruN ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_args.c ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_args.c
+--- ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_args.c	Mon Nov 19 11:04:26 2001
++++ ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_args.c	Sun Dec 23 14:03:16 2001
+@@ -47,7 +47,6 @@
+     execer_starting_remotes = P4_FALSE;
+     execer_id[0] = '\0';
+     execer_masthost[0] = '\0';
+-    execer_jobname[0] = '\0';
+     execer_mynodenum = 0;
+     execer_mastport = 0;
+     execer_pg = NULL;
+@@ -66,6 +65,22 @@
+ 
+         if (strcmp(*a, "-execer_id") == 0)
+         {
++	    /*
++	     * Format of the rest of the args, example job:
++	     *   node00:1 + node01:3 + node02:1
++	     * Big master:
++	     * a.out -execer_id mpiexec -master_host node00 -my_hostname node00
++	     *   -my_nodenum 0 -my_numprocs 1 -total_numnodes 3 -mastport 4444
++	     *  -remote_info node01 3 node02 1
++	     * Remote masters:
++	     * a.out -execer_id mpiexec -master_host node00 -my_hostname node01
++	     *  -my_nodenum 1 -my_numprocs 3 -total_numnodes 3 -master_port 5555
++	     * a.out -execer_id mpiexec -master_host node00 -my_hostname node02
++	     *  -my_nodenum 2 -my_numprocs 1 -total_numnodes 3 -master_port 5555
++	     *
++	     * Master will be started first, then report its listening
++	     * socket, then slaves can be started all at once in any order.
++	     */
+             execer_starting_remotes = P4_TRUE;
+             strcpy(execer_id,*(a+1));
+             strcpy(execer_masthost,*(a+3));
+@@ -73,7 +88,8 @@
+             execer_mynodenum = atoi(*(a+7));
+             execer_mynumprocs = atoi(*(a+9));
+ 	    execer_numtotnodes = atoi(*(a+11));
+-            strcpy(execer_jobname,*(a+13));
++	    execer_mastport = atoi(*(a+13));
++	    nextarg = 14;
+ 	    if (execer_mynodenum == 0)
+ 	    {
+ 		execer_pg = p4_alloc_procgroup();
+@@ -83,25 +99,21 @@
+ 		strcpy(pe->slave_full_pathname,argv[0]);
+ 		pe->username[0] = '\0'; /* unused */
+ 		execer_pg->num_entries++;
+-		nextarg = 15;
+ 		for (i=0; i < (execer_numtotnodes-1); i++)
+ 		{
++		    if (i == 0)
++			++nextarg;  /* "-remote_info" fake arg */
+ 		    pe++;
+ 		    strcpy(pe->host_name,*(a+nextarg));
+ 		    nextarg++;
+-		    nextarg++;  /* skip node num */
+ 		    pe->numslaves_in_group = atoi(*(a+nextarg));
+ 		    nextarg++;
+-		    strcpy(pe->slave_full_pathname,*(a+nextarg)); /* unused */
+-		    nextarg++;
++		    *pe->slave_full_pathname = 0;
+ 		    pe->username[0] = '\0'; /* unused */
+ 		    execer_pg->num_entries++;
+ 		}
+ 	    }
+-	    else
+-	    {
+-		execer_mastport = get_execer_port(execer_masthost);
+-	    }
++	    strip_out_args(a, argc, &c, nextarg);
+             continue;
+         }
+ 
+diff -x tags -ruN ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_bm.c ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_bm.c
+--- ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_bm.c	Wed Sep 19 09:23:02 2001
++++ ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_bm.c	Sun Dec 23 14:05:58 2001
+@@ -251,14 +251,13 @@
+ struct p4_procgroup *pg;
+ {
+     struct p4_procgroup_entry *local_pg;
+-    struct listener_data *ldata = NULL;
+-    int nslaves, end_1, end_2;
++    int nslaves, end1, end2;
+     int slave_pid, listener_pid = -1;
+     int slave_idx, listener_fd = -1;
++    int i;
+ #   if defined(IPSC860)  ||  defined(CM5)  ||  defined(NCUBE)  ||  defined(SP1_EUI) || defined(SP1_EUIH)
+     /* Message passing systems require additional information */
+     struct bm_rm_msg bm_msg;
+-    int i;
+     int port, switch_port, type, len, from, unused_flag
+ #endif
+ #   if defined(THREAD_LISTENER)
+@@ -279,10 +278,8 @@
+     if (!(p4_global->local_communication_only))
+     {
+ 	listener_fd = p4_global->listener_fd;
+-	listener_info = alloc_listener_info();
+-	ldata = listener_info;
+-	get_pipe(&end_1, &end_2); /* used even by thread listener */
+-	ldata->slave_fd = end_2;
++	listener_info = alloc_listener_info(nslaves+1);
++	listener_info->listening_fd = listener_fd;
+     }
+ #   endif
+ 
+@@ -352,7 +349,17 @@
+     for (slave_idx = 1; slave_idx <= nslaves; slave_idx++)
+     {
+ 	p4_dprintfl(20, "creating local slave %d of %d\n",slave_idx,nslaves);
++#       if defined(CAN_DO_SOCKET_MSGS)  &&  !defined(NO_LISTENER)
++        if (!(p4_global->local_communication_only)) {
++	    get_pipe(&end1, &end2);
++	    listener_info->slave_fd[slave_idx] = end2;
++	}
++#       endif
+ 	slave_pid = fork_p4();
++#       if defined(CAN_DO_SOCKET_MSGS)  &&  !defined(NO_LISTENER)
++        if (!(p4_global->local_communication_only))
++	    listener_info->slave_pid[slave_idx] = slave_pid;
++#       endif
+ 	if (slave_pid < 0)
+ 	    p4_error("create_bm_processes fork", slave_pid);
+ 	else
+@@ -365,12 +372,18 @@
+ 	    p4_free(p4_local);	/* Doesn't work for weird memory model. */
+ 	    p4_local = alloc_local_slave();
+ 
++	    mpiexec_reopen_stdin();
++
+ #           ifdef CAN_DO_SOCKET_MSGS
+ 	    if (!(p4_global->local_communication_only))
+ 	    {
+-		p4_local->listener_fd = end_1;
++		int cc = fcntl(end1, F_SETFL, O_NONBLOCK);
++		if (cc < 0)
++		    p4_error("create_bm_processes: set listener nonblocking",
++		      cc);
++		p4_local->listener_fd = end1;
+ #               if !defined(THREAD_LISTENER)
+-		close(end_2);
++		close(end2);
+ #               endif
+ 		close(listener_fd);
+ 	    }
+@@ -383,6 +396,12 @@
+ 	    p4_lock(&p4_global->slave_lock);
+ 	    p4_unlock(&p4_global->slave_lock);
+ 
++#ifdef CAN_DO_SOCKET_MSGS
++#ifndef THREAD_LISTENER
++	    SIGNAL_P4(LISTENER_ATTN_SIGNAL, handle_connection_interrupt);
++#endif
++#endif
++
+ 	    p4_local->my_id = p4_get_my_id_from_proc();
+ #if defined(SUN_SOLARIS)
+ /*****  Shyam code, removed by RL
+@@ -428,6 +447,10 @@
+ 	    ALOG_LOG(p4_local->my_id,BEGIN_USER,0,"");
+ 	    return (0);
+ 	}
++#   ifdef CAN_DO_SOCKET_MSGS
++	/* slave holds this end */
++	close(end1);
++#   endif
+ 
+ 	/* master installing local slaves */
+ 	install_in_proctable(0, p4_global->listener_port, slave_pid,
+@@ -468,17 +491,20 @@
+ #   if defined(CAN_DO_SOCKET_MSGS)  &&  !defined(NO_LISTENER) && !defined(THREAD_LISTENER)
+     if (!(p4_global->local_communication_only))
+     {
++	/* communication big master <--> listener */
++	get_pipe(&end1, &end2);
++	p4_local->listener_fd = end1;
++	listener_info->slave_fd[0] = end2;
++
+ 	listener_pid = fork_p4();
+ 	if (listener_pid < 0)
+ 	    p4_error("create_bm_processes listener fork", listener_pid);
+ 	if (listener_pid == 0)
+ 	{
++	    close(end1);
+ 	    sprintf(whoami_p4, "bm_list_%d", (int)getpid());
+ 	    /* Inside listener */
+ 	    p4_local = alloc_local_listener();
+-	    ldata->listening_fd = listener_fd;
+-	    ldata->slave_fd = end_2;
+-	    close(end_1);
+ 	    {
+ 		/* exec external listener process */
+ 
+@@ -488,10 +514,11 @@
+ 		{
+ 		    char dbg_c[10], max_c[10], lfd_c[10], sfd_c[10];
+ 
++		    p4_error("external listener not supported", 0);
+ 		    sprintf(dbg_c, "%d", p4_debug_level);
+ 		    sprintf(max_c, "%d", p4_global->max_connections);
+-		    sprintf(lfd_c, "%d", ldata->listening_fd);
+-		    sprintf(sfd_c, "%d", ldata->slave_fd);
++		    sprintf(lfd_c, "%d", listener_info->listening_fd);
++		    sprintf(sfd_c, "%d", listener_info->slave_fd[0]);
+ 		    p4_dprintfl(70, "exec %s %s %s %s %s\n",
+ 				listener_prg, dbg_c, max_c, lfd_c, sfd_c);
+ 		    execlp(listener_prg, listener_prg,
+@@ -501,7 +528,7 @@
+ 		}
+ 	    }
+ 	    listener();
+-	    exit(0);
++	    exit(1);  /* not reached */
+ 	}
+     }
+ #   endif
+@@ -527,14 +554,14 @@
+     /* NT version put the last arg of CreateThread into listener_pid */
+ #   endif
+ 
+-    /* We need to close the fds from the listener setup */
++    /* We need to close the fds from the listener setup, in big master
++     * process, slave number 0. */
+ #   if defined(CAN_DO_SOCKET_MSGS)  &&  !defined(NO_LISTENER) 
+     if (!(p4_global->local_communication_only))
+     {
+-	p4_local->listener_fd = end_1;
+ #       if !defined(THREAD_LISTENER)
+ 	close(listener_fd);
+-	close(end_2);
++	close(end2);
+ #       endif
+ 	p4_global->listener_pid = listener_pid;
+     }
+diff -x tags -ruN ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_defs.h ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_defs.h
+--- ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_defs.h	Thu Sep 20 10:10:24 2001
++++ ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_defs.h	Thu Dec 20 10:50:01 2001
+@@ -112,7 +112,9 @@
+ 
+ struct listener_data {
+     int listening_fd;
+-    int slave_fd;
++    int num;  /* of slaves, including big or remote master */
++    int *slave_pid;
++    int *slave_fd;
+ };
+ PUBLIC struct listener_data *listener_info;
+ 
+diff -x tags -ruN ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_error.c ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_error.c
+--- ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_error.c	Fri Oct 19 18:01:15 2001
++++ ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_error.c	Sun Dec 23 14:06:28 2001
+@@ -104,6 +104,14 @@
+     p4_dprint_last( stderr );
+ #endif
+ 
++#if 0
++    SIGNAL_P4(LISTENER_ATTN_SIGNAL, SIG_IGN);
++    p4_dprintf("p4_error: ******** pausing before any zap **********\n");
++    fflush(stdout);
++    fflush(stderr);
++    pause();
++#endif
++
+     /* Send interrupt to all known processes */
+ 	zap_p4_processes(); 
+ 
+@@ -143,13 +151,6 @@
+       BNR_Kill( mygroup );
+     }
+ #endif
+-    if (execer_starting_remotes  &&  execer_mynodenum == 0)
+-    {
+-	strcpy(job_filename,"/tmp/p4_");
+-	strcat(job_filename,execer_jobname);
+-	unlink(job_filename);
+-    }
+-
+     if (interrupt_caught && value != SIGINT)
+     {
+ 	switch (value)
+diff -x tags -ruN ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_globals.h ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_globals.h
+--- ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_globals.h	Mon Nov 19 15:12:32 2001
++++ ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_globals.h	Sun Dec 23 14:06:54 2001
+@@ -23,7 +23,6 @@
+ PUBLIC char execer_myhost[100];
+ PUBLIC int  execer_mynumprocs;
+ PUBLIC char execer_masthost[100];
+-PUBLIC char execer_jobname[100];
+ PUBLIC int  execer_mastport;
+ PUBLIC int  execer_numtotnodes;
+ PUBLIC struct p4_procgroup *execer_pg;
+diff -x tags -ruN ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_rm.c ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_rm.c
+--- ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_rm.c	Mon Nov 19 09:27:03 2001
++++ ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_rm.c	Sun Dec 23 10:59:48 2001
+@@ -51,9 +51,6 @@
+     freopen(P4_OUTFILE, "w", stderr);
+ #endif
+ 
+-    if (*argc < 4)
+-	p4_error("Invalid arguments to remote_master", *argc);
+-
+     conn_retries = 5;
+     if (execer_mynodenum)
+     {
+@@ -63,6 +60,9 @@
+     }
+     else
+     {
++	if (*argc < 4)
++	    p4_error("Invalid arguments to remote_master", *argc);
++
+ 	bm_host = argv[1];
+ 	bm_port = atoi(argv[2]);
+     }
+@@ -249,14 +249,14 @@
+ int bm_fd;
+ {
+     struct p4_global_data *g = p4_global;
+-    struct listener_data *l;
+-    int end_1, end_2, slave_pid, listener_pid;
++    int end1, end2, slave_pid, listener_pid;
+     int slave_idx, listener_port, listener_fd;
+     char rm_host[100];
+     int rm_switch_port;
+     struct bm_rm_msg bm_msg;
++    int i;
+ #   if defined(IPSC860)  ||  defined(CM5)  ||  defined(NCUBE)  ||  defined(SP1_EUI) || defined(SP1_EUIH)
+-    int i, from, type, len, unused_flag;
++    int from, type, len, unused_flag;
+ #endif
+ #   if defined(THREAD_LISTENER)
+     p4_thread_t trc;
+@@ -273,9 +273,12 @@
+      * eventually become the listener.
+      */
+ 
+-    l = listener_info = alloc_listener_info();
++    /* nslaves is total number of processes on the remote machine; this
++     * is not the case in the big master code, though. */
++    listener_info = alloc_listener_info(nslaves);
+ 
+     net_setup_anon_listener(10, &listener_port, &listener_fd);
++    listener_info->listening_fd = listener_fd;
+ 
+     p4_dprintfl(70, "created listener on port %d fd %d\n", listener_port,
+ 		listener_fd);
+@@ -336,37 +339,52 @@
+     }
+ #   else
+ 
+-#   if !defined(NO_LISTENER)
+-    get_pipe(&end_1, &end_2);
+-#   endif
+     for (slave_idx = 1; slave_idx <= nslaves - 1; slave_idx++)
+     {
+ 	p4_dprintfl(20,"remote master creating local slave %d\n",slave_idx);
+ 		    
++#   if !defined(NO_LISTENER)
++	get_pipe(&end1, &end2);
++	listener_info->slave_fd[slave_idx] = end2;
++#   endif
+ 	slave_pid = fork_p4();
++#   if !defined(NO_LISTENER)
++	listener_info->slave_pid[slave_idx] = slave_pid;
++#   endif
+ 	if (slave_pid)
+ 	    p4_dprintfl(10,"remote master created local slave %d\n",slave_idx);
+ 	if (slave_pid == 0)
+ 	{
+ 	    /* In the slave process */
+-
+ 	    sprintf(whoami_p4, "rm_s_%d_%d_%d", rm_num, slave_idx, (int)getpid());
+-
+ 	    p4_local = alloc_local_slave();
+-	    p4_local->listener_fd = end_1;
++
++	    mpiexec_reopen_stdin();
++
++#   if !defined(NO_LISTENER)
++	    {
++	    int cc;
++		cc = fcntl(end1, F_SETFL, O_NONBLOCK);
++		if (cc < 0)
++		    p4_error("create_rm_processes: set listener nonblocking",
++		      cc);
++
++		p4_local->listener_fd = end1;
+ #           if !defined(THREAD_LISTENER)
+-	    close(listener_fd);
+-	    close(end_2);
++		close(end2);
+ #           endif
+-
+-#ifndef THREAD_LISTENER
+-            SIGNAL_P4(LISTENER_ATTN_SIGNAL, handle_connection_interrupt);
+-#endif
++	    }
++#   endif
++	    close(listener_fd);
+ 
+ 	    /* hang for a valid proctable */
+ 	    p4_lock(&g->slave_lock);
+ 	    p4_unlock(&g->slave_lock);
+ 
++#ifndef THREAD_LISTENER
++            SIGNAL_P4(LISTENER_ATTN_SIGNAL, handle_connection_interrupt);
++#endif
++
+ 	    p4_local->my_id = p4_get_my_id_from_proc();
+ 	    sprintf(whoami_p4, "p%d_%d", p4_get_my_id(), (int)getpid());
+ 	    setup_conntab();
+@@ -389,6 +407,10 @@
+             ALOG_LOG(p4_local->my_id,BEGIN_USER,0,"");
+ 	    return;
+ 	}
++#   if !defined(NO_LISTENER)
++	/* slave holds this end */
++	close(end1);
++#   endif
+ 
+ 	/* Send off the slave info to the bm */
+ 	bm_msg.type = p4_i_to_n(REMOTE_SLAVE_INFO);
+@@ -419,18 +441,18 @@
+     g->listener_fd   = listener_fd;
+ 
+ #   if !defined(IPSC860)  &&  !defined(CM5)  &&  !defined(NCUBE)  &&  !defined(SP1_EUI) && !defined(SP1_EUIH)
+-    p4_local->listener_fd = end_1;
+-    l->listening_fd = listener_fd;
+-    l->slave_fd = end_2;
++    get_pipe(&end1, &end2);
++    p4_local->listener_fd = end1;
++    listener_info->slave_fd[0] = end2;
+ #   if !defined(NO_LISTENER) && !defined(THREAD_LISTENER)
+     listener_pid = fork_p4();
+     if (listener_pid == 0)
+     {
+ 	/* Inside listener */
++	listener_info->slave_pid[0] = getppid();
++	close(end1);
+ 	sprintf(whoami_p4, "rm_l_%d_%d", rm_num, (int)getpid());
+ 	p4_dprintfl(70, "inside listener pid %d\n", getpid());
+-	p4_local = alloc_local_listener();
+-	close(end_1);
+ 	{
+ 	    /* exec external listener process */
+ 
+@@ -440,10 +462,11 @@
+ 	    {
+ 		char dbg_c[10], max_c[10], lfd_c[10], sfd_c[10];
+ 
++		p4_error("external listener not supported", 0);
+ 		sprintf(dbg_c, "%d", p4_debug_level);
+ 		sprintf(max_c, "%d", p4_global->max_connections);
+-		sprintf(lfd_c, "%d", l->listening_fd);
+-		sprintf(sfd_c, "%d", l->slave_fd);
++		sprintf(lfd_c, "%d", listener_info->listening_fd);
++		sprintf(sfd_c, "%d", listener_info->slave_fd[0]);
+ 		p4_dprintfl(70, "exec %s %s %s %s %s\n",
+ 			    listener_prg, dbg_c, max_c, lfd_c, sfd_c);
+ 		execlp(listener_prg, listener_prg,
+@@ -453,9 +476,11 @@
+ 	    }
+ 	}
+ 	listener();
+-	exit(0);
++	exit(1);  /* not reached */
+     }
+ #   endif
++    close(listener_fd);
++    close(end2);
+ 
+     /* Else we're still in the remote master */
+ #   if defined(THREAD_LISTENER)
+@@ -469,12 +494,8 @@
+ 
+     p4_dprintfl(70, "created listener pid %d\n", listener_pid);
+     /* We need to close the fds from the listener setup */
+-#   if !defined(THREAD_LISTENER)
+-    close(listener_fd);
+-    close(end_2);
+-#   endif
+     g->listener_pid = listener_pid;
+-#   endif
++#   endif  /* !IPSC860 etc */
+     rm_flag = 1;  /* I am the remote master */
+ }
+ 
+diff -x tags -ruN ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_sock_conn.c ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_sock_conn.c
+--- ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_sock_conn.c	Mon Nov 19 11:21:11 2001
++++ ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_sock_conn.c	Sun Dec 23 14:40:24 2001
+@@ -1,5 +1,6 @@
+ #include "p4.h"
+ #include "p4_sys.h"
++#include <time.h>
+ 
+ #ifdef P4_WITH_MPD
+ #if defined(USE_STDARG)
+@@ -505,7 +506,7 @@
+     p4_dprintfl(70, "request_connection: sending CONNECTION_REQUEST to %d on fd=%d size=%d\n",
+ 		dest_id,dest_listener_con_fd,sizeof(msg));
+     net_send(dest_listener_con_fd, &msg, sizeof(msg), P4_FALSE);
+-    p4_dprintfl(70, "request_connection: sent CONNECTION_REQUEST to dest_listener\n");
++    p4_dprintfl(70, "request_connection: sent CONNECTION_REQUEST for %d (pid %d) to dest_listener on fd %d\n", dest_id, dest_pi->unix_id, dest_listener_con_fd);
+ 
+     if (my_id < dest_id)
+     {
+@@ -553,10 +554,25 @@
+     p4_dprintfl(70, "Inside handle_connection_interrupt, listener_fd=%d\n",
+ 		listener_fd);
+ 
+-    if (net_recv(listener_fd, &msg, sizeof(msg)) == PRECV_EOF)
+-    {
+-	p4_dprintf("OOPS: got eof in handle_connection_interrupt\n");
+-	return;
++    /*
++     * Must read non-blocking due to race conditions with using
++     * signals as IPC mechanism.  See the fcntl near get_pipe where
++     * these are created.
++     */
++    for (;;) {
++	int cc = read(listener_fd, &msg, sizeof(msg));
++	if (cc == 0)
++	    p4_error("handle_connection_interrupt: EOF from listener", 0);
++	if (cc < 0) {
++	    if (errno == EAGAIN)
++		continue;
++	    p4_error("handle_connection_interrupt: read listener", cc);
++	}
++	/* these should be atomic: AF_UNIX, AF_STREAM */
++	if (cc != sizeof(msg))
++	    p4_error("handle_connection_interrupt: short read"
++	      " from listener", 0);
++	break;
+     }
+ 
+     type = p4_n_to_i(msg.type);
+diff -x tags -ruN ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_sock_cr.c ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_sock_cr.c
+--- ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_sock_cr.c	Mon Nov 19 09:27:04 2001
++++ ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_sock_cr.c	Tue Dec 18 11:20:40 2001
+@@ -14,7 +14,8 @@
+     net_setup_anon_listener(5, &serv_port, &serv_fd);
+     if (execer_starting_remotes)
+     {
+-	put_execer_port(serv_port);
++	if (pg->num_entries > 1)
++	    put_execer_port(serv_port);
+ 	for (i=1, pe = pg->entries+1; i < pg->num_entries; i++, pe++)
+ 	{
+ 	    rm_fd = net_accept(serv_fd);
+diff -x tags -ruN ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_sock_list.c ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_sock_list.c
+--- ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_sock_list.c	Tue Aug 14 17:50:25 2001
++++ ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_sock_list.c	Sun Dec 23 10:54:05 2001
+@@ -1,71 +1,157 @@
+ #include "p4.h"
+ #include "p4_sys.h"
+ 
++#include <time.h>
++
+ #ifndef THREAD_LISTENER
+-P4VOID listener( void )
++typedef struct {
++    enum { OK, BUSY, DEAD } state;
++    int busycount;  /* number of outstanding messages */
++} sock_state_t;
++static sock_state_t *sock_state;
++
++static void wakeup_slave(int idx);
++static void process_slave_message(int idx);
++static void process_connect_request(int listening_fd);
++
++P4VOID
++listener(void)
+ {
+-    struct listener_data *l = listener_info;
+-    P4BOOL done = P4_FALSE;
+-    fd_set read_fds;
+-    int i, nfds, fd;
+-    int max_fd;
++    int i;
+ 
+-    p4_dprintfl(70, "enter listener \n");
++    p4_dprintfl(70, "enter listener, pid %d\n", getpid());
+     dump_listener(70);
+ 
+-    while (!done)
+-    {
++    sock_state = p4_malloc(listener_info->num * sizeof(*sock_state));
++    for (i=0; i<listener_info->num; i++) {
++	sock_state[i].state = OK;
++	sock_state[i].busycount = 0;
++    }
++
++    for (;;) {
++	int newstate, max_fd, nfds, numbusy;
++	fd_set read_fds;
++	struct timeval tv, *tvp;
++
+ 	FD_ZERO(&read_fds);
+-	FD_SET(l->listening_fd, &read_fds);
+-	FD_SET(l->slave_fd, &read_fds);
+-	max_fd = l->listening_fd;
+-	if (l->slave_fd > max_fd) max_fd = l->slave_fd;
++	FD_SET(listener_info->listening_fd, &read_fds);
++	max_fd = listener_info->listening_fd;
++	numbusy = 0;
++	for (i=0; i<listener_info->num; i++) {
++	    if (sock_state[i].state != DEAD) {
++		FD_SET(listener_info->slave_fd[i], &read_fds);
++		if (listener_info->slave_fd[i] > max_fd)
++		    max_fd = listener_info->slave_fd[i];
++		if (sock_state[i].state == BUSY)
++		    ++numbusy;
++	    }
++	}
++
++	if (numbusy) {
++	    tvp = &tv;
++	    tv.tv_sec = 0;
++	    tv.tv_usec = 100000;
++	} else
++	    tvp = 0;
+ 
+-	SYSCALL_P4(nfds, select(max_fd + 1, &read_fds, 0, 0, 0));
+ 	/* SYSCALL_P4 retries on EINTR; other errors are fatal */
++	SYSCALL_P4(nfds, select(max_fd + 1, &read_fds, 0, 0, tvp));
+ 	if (nfds < 0) {
+ 	    p4_error("listener select", nfds);
+ 	}
+ 	if (nfds == 0) {
+-	    p4_dprintfl(70, "select timeout\n");
++	    if (tvp) {
++		for (i=0; i<listener_info->num; i++)
++		    if (sock_state[i].state == BUSY) {
++			p4_dprintfl(70, "wakeup slave %d from timeout\n", i);
++			wakeup_slave(i);
++		    }
++	    } else
++		p4_dprintfl(70, "select timeout\n");
++
+ 	    continue;
+ 	}
+ 
+-	/* We use |= to insure that after the loop, we haven't lost
+-	   any "done" messages. 
+-	   There really are some nasty race conditions here, and all
+-	   this does is cause us to NOT lose a "DIE" message
+-	*/
+-	if (FD_ISSET(l->listening_fd,&read_fds)) {
+-	    p4_dprintfl(70, "input on listening_fd=%d\n", l->listening_fd);
+-	    done |= process_connect_request(l->listening_fd);
+-	}
+-	if (FD_ISSET(l->slave_fd,&read_fds)) {
+-	    p4_dprintfl(70, "input on slave_fd=%d\n", l->slave_fd);
+-	    done |= process_slave_message(l->slave_fd);
++	if (FD_ISSET(listener_info->listening_fd, &read_fds)) {
++	    p4_dprintfl(70, "input on listening_fd %d\n",
++	      listener_info->listening_fd);
++	    process_connect_request(listener_info->listening_fd);
++	    --nfds;
++	}
++	for (i=0; nfds && i<listener_info->num; i++) {
++	    if (FD_ISSET(listener_info->slave_fd[i], &read_fds)) {
++		p4_dprintfl(70, "input on pipe %d, slave_fd = %d, pid = %d\n",
++		  i, listener_info->slave_fd[i], listener_info->slave_pid[i]);
++		process_slave_message(i);
++		--nfds;
++	    }
+ 	}
+     }
+ 
+-    close( l->listening_fd );
+-    close( l->slave_fd );
+-
+     p4_dprintfl(70, "exit listener\n");
+     exit(0);
+ }
+ 
+-P4BOOL process_connect_request(int fd)
++/*
++ * Return index in array based on incoming pid.
++ */
++static int
++lookup_slave_by_pid(int pid)
++{
++    int i;
++
++    for (i=0; i<listener_info->num; i++)
++	if (listener_info->slave_pid[i] == pid)
++	    return i;
++    p4_error("lookup_slave_index_by_pid: %d not found", pid);
++}
++
++/*
++ * Forward a message received from the net to the pipe for
++ * the destination slave.
++ */
++static void
++message_to_slave(int idx, struct slave_listener_msg *msg)
++{
++    net_send(listener_info->slave_fd[idx], msg, sizeof(*msg), P4_FALSE);
++    sock_state[idx].state = BUSY;
++    ++sock_state[idx].busycount;
++    wakeup_slave(idx);
++}
++
++/*
++ * Send a signal to the process telling him to pay attention to the
++ * pipe from the listener.
++ */
++static void
++wakeup_slave(int idx)
++{
++
++    if (kill(listener_info->slave_pid[idx], LISTENER_ATTN_SIGNAL) == -1) {
++	/* might have died on his own, okay */
++	p4_dprintf("wakeup_slave: unable to interrupt slave %d pid %d\n",
++          idx, listener_info->slave_pid[idx]);
++	sock_state[idx].state = DEAD;
++    }
++}
++
++/*
++ * Accept a new socket from the network, deal with it, possibly
++ * forwarding the message on to a slave.  The new connection is
++ * always closed immediately after receipt of this message.
++ */
++static void
++process_connect_request(int listening_fd)
+ {
+     struct slave_listener_msg msg;
+-    int type, msglen;
++    int msglen;
+     int connection_fd, slave_fd;
+-    int from, lport, to_pid, to;
+-    P4BOOL rc = P4_FALSE;
+-
+-    p4_dprintfl(70, "processing connect check/request on %d\n", fd);
++    int from, to_pid, idx, type, lport;
+ 
+-    connection_fd = net_accept(fd);
++    connection_fd = net_accept(listening_fd);
+ 
+-    p4_dprintfl(70, "accepted on connection_fd=%d reading size=%d\n", connection_fd,sizeof(msg));
++    p4_dprintfl(70, "process_connect_request: accepted on fd %d\n",
++      connection_fd);
+ 
+     /* We originally used net_recv here, but there is the chance that a
+        bogus message arrives.  In that case, we read, discard, and close
+@@ -74,136 +160,115 @@
+        message cookie).  Because we need a timeout, we can't use net_recv.
+        Since we don't need a very complex receive message, this isn't
+        such a bad thing */
+-    if ((msglen = net_recv_timeout(connection_fd, &msg, sizeof(msg), 10)) == 
+-	PRECV_EOF || msglen != sizeof(msg))
+-    {
+-	close( connection_fd );
+-	return (P4_FALSE);
++    msglen = net_recv_timeout(connection_fd, &msg, sizeof(msg), 10);
++    if (msglen == PRECV_EOF || msglen != sizeof(msg)) {
++	p4_dprintf("process_connect_request: bad connect request len %d"
++	  " wanted %d\n", msglen, sizeof(msg));
++	close(connection_fd);
++	return;
+     }
++    close(connection_fd);
+ 
+     type = p4_n_to_i(msg.type);
+-    switch (type)
+-    {
++    switch (type) {
+       case IGNORE_THIS:
+-	p4_dprintfl(70, "got IGNORE_THIS\n");
++	p4_dprintfl(70, "got IGNORE_THIS from net\n");
+ 	break;
+ 
+-      case DIE:
++      case CONNECTION_REQUEST:
+ 	from = p4_n_to_i(msg.from);
+-	p4_dprintfl(99, "received DIE msg from remote %d\n", from);
+-	rc = P4_TRUE;
++	to_pid = p4_n_to_i(msg.to_pid);
++	idx = lookup_slave_by_pid(to_pid);
++	lport = p4_n_to_i(msg.lport);
++	p4_dprintfl(70, "process_connect_request: to slave %d pid %d from %d"
++	  " port %d\n", idx, to_pid, from, lport);
++	message_to_slave(idx, &msg);
+ 	break;
+ 
+       case KILL_SLAVE:
+-	  /* A KILL_SLAVE message is very strong and causes nearly immediate 
+-	     exit by the slave.  */
++        /*
++	 * KILL_SLAVE is used by a remote machine to destroy a particular
++	 * process here, but not the listener (see DIE).
++	 */
+ 	from = p4_n_to_i(msg.from);
+ 	to_pid = p4_n_to_i(msg.to_pid);
+-	p4_dprintfl(99, "received kill_slave %d msg from remote %d\n", to_pid, from);
+-	slave_fd = listener_info->slave_fd;
+-
+-	if (kill(to_pid, LISTENER_ATTN_SIGNAL) == -1)
+-	{
+-	    p4_dprintf("Listener: Unable to interrupt client pid=%d.\n", to_pid);
+-	    break;
+-	}
+-
+-	net_send(slave_fd, &msg, sizeof(msg), P4_FALSE);
+-	/* wait for msg from slave indicating it got connected */
+-	/*
+-	 * do not accept any more connections for slave until it has fully
+-	 * completed this one, i.e. do not want to interrupt it until it has
+-	 * handled this interrupt
+-	 */
+-	p4_dprintfl(70, "waiting for slave to handle interrupt\n");
+-	net_recv(slave_fd, &msg, sizeof(msg));
+-	/* Check that we get a valid message; for now (see p4_sock_conn/
+-	   handle_connection_interrupt) this is just IGNORE_THIS */
+-	if (p4_i_to_n(msg.type) != IGNORE_THIS) {
+-	    p4_dprintf("received incorrect handshake message type=%d\n", 
+-		       p4_i_to_n(msg.type) );
+-	    p4_error("slave_listener_msg: broken handshake", 
+-		     p4_i_to_n(msg.type));
+-	    }
+-	p4_dprintfl(70, "back from slave handling interrupt\n");
++	idx = lookup_slave_by_pid(to_pid);
++	p4_dprintfl(10, "received msg for %d: kill_slave from %d to_pid %d\n",
++	  idx, from, to_pid);
++	message_to_slave(idx, &msg);
+ 	break;
+ 
+-      case CONNECTION_REQUEST:
++      case DIE:
++	/* DIE says listener should exit, not just forget about one client */
+ 	from = p4_n_to_i(msg.from);
+-	to_pid = p4_n_to_i(msg.to_pid);
+-	to = p4_n_to_i(msg.to);
+-	lport = p4_n_to_i(msg.lport);
+-	p4_dprintfl(70, "connection_request2: poking slave: from=%d lport=%d to_pid=%d to=%d\n",
+-		    from, lport, to_pid, to);
+-
+-	slave_fd = listener_info->slave_fd;
+-
+-	if (kill(to_pid, LISTENER_ATTN_SIGNAL) == -1)
+-	{
+-	    p4_dprintf("Listener: Unable to interrupt client pid=%d.\n", to_pid);
+-	    break;
+-	}
+-
+-	net_send(slave_fd, &msg, sizeof(msg), P4_FALSE);
+-	/* wait for msg from slave indicating it got connected */
+-	/*
+-	 * do not accept any more connections for slave until it has fully
+-	 * completed this one, i.e. do not want to interrupt it until it has
+-	 * handled this interrupt
+-	 */
+-	p4_dprintfl(70, "waiting for slave to handle interrupt\n");
+-	net_recv(slave_fd, &msg, sizeof(msg));
+-	/* Check that we get a valid message; for now (see p4_sock_conn/
+-	   handle_connection_interrupt) this is just IGNORE_THIS */
+-	if (p4_i_to_n(msg.type) != IGNORE_THIS) {
+-	    p4_dprintf("received incorrect handshake message type=%d\n", 
+-		       p4_i_to_n(msg.type) );
+-	    p4_error("slave_listener_msg: broken handshake", 
+-		     p4_i_to_n(msg.type));
+-	    }
+-	p4_dprintfl(70, "back from slave handling interrupt\n");
+-	break;
++	p4_dprintfl(10, "received DIE msg from remote %d\n", from);
++	exit(0);
+ 
+       default:
+ 	p4_dprintf("invalid type %d in process_connect_request\n", type);
+ 	break;
+     }
+-    close(connection_fd);
+-    return (rc);
+ }
+ 
+-P4BOOL process_slave_message(fd)
+-int fd;
++static void
++process_slave_message(int idx)
+ {
+     struct slave_listener_msg msg;
+-    int type;
+-    int from;
+-    P4BOOL rc = P4_FALSE;
+-    int status;
++    int type, from, cc;
+ 
+-    status = net_recv(fd, &msg, sizeof(msg));
+-    if (status == PRECV_EOF)
+-    {
+-	p4_error("slave_listener_msg: got eof on fd=", fd);
++    /*
++     * An EOF will happen naturally if the slave process exits.  Do
++     * not force an error.  In fact, don't even use net_recv() since
++     * this is a local pipe.  Just read it.
++     */
++    cc = read(listener_info->slave_fd[idx], &msg, sizeof(msg));
++    if (cc == 0 || (cc < 0 && errno == ECONNRESET)) {
++	/* ECONNRESET means there was still data on the connection, but
++	 * it can be ignored since the slave already exited.
++	 */
++	sock_state[idx].state = DEAD;
++	close(listener_info->slave_fd[idx]);
++	return;
++    }
++    if (cc < 0) {
++	p4_dprintf("process_slave_message: idx %d fd %d pid %d cc %d"
++	  " errno %d\n",
++	  idx, listener_info->slave_fd[idx], listener_info->slave_pid[idx],
++	  cc, errno);
++	p4_error("process_slave_message: read pipe", cc);
+     }
++    if (cc != sizeof(msg))
++	p4_error("process_slave_message: short read from pipe", 0);
+ 
+     type = p4_n_to_i(msg.type);
+     from = p4_n_to_i(msg.from);
+ 
+     switch (type)
+     {
++      case IGNORE_THIS:
++	/* response to forwarded message, clear his busy flag */
++	if (sock_state[idx].state == BUSY) {
++	    p4_dprintfl(20, "process_slave_message: slave %d busy was %d\n",
++	      idx, sock_state[idx].busycount);
++	    --sock_state[idx].busycount;
++	    if (sock_state[idx].busycount == 0)
++		sock_state[idx].state = OK;
++	} else {
++	    p4_dprintf("process_slave_message: ignoring IGNORE_THIS for %d",
++	      idx);
++	}
++	return;
++
+       case DIE:
+-	p4_dprintfl(70, "received die msg from slave %d\n", from);
+-	rc = P4_TRUE;
+-	break;
++	/* see DIE from remote above, just quit the listener */
++	p4_dprintfl(10, "received die msg from slave %d\n", from);
++	exit(0);
+ 
+       default:
+ 	p4_dprintf("received unknown message type=%d from=%d\n", type, from);
+ 	p4_error("slave_listener_msg: unknown message type", type);
+ 	break;
+     }
+-
+-    return (rc);
+ }
+ 
+ #else /* def THREAD_LISTENER */
+diff -x tags -ruN ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_sock_sr.c ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_sock_sr.c
+--- ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_sock_sr.c	Wed Nov  7 14:49:00 2001
++++ ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_sock_sr.c	Sun Dec 23 14:42:40 2001
+@@ -304,8 +304,8 @@
+ 			}
+ 			if (tmsg->ack_req & P4_CLOSE_MASK) 
+ 			{
+-			    p4_dprintfl(20,"Received close connection on %d\n",
+-					i );
++			    p4_dprintfl(20,"Received close connection on %d (fd %d)\n",
++					i, fd);
+ 			    p4_local->conntab[i].type = CONN_REMOTE_CLOSED;
+ 			    /* Discard the message */
+ 			    free_p4_msg( tmsg );
+@@ -768,7 +768,7 @@
+ 	n = net_recv(fd, &nmsg, sizeof(struct p4_net_msg_hdr));
+ 	if (p4_n_to_i(nmsg.ack_req) & P4_CLOSE_MASK) 
+ 	{
+-	    p4_dprintfl(20,"Received close connection on %d\n",	i );
++	    p4_dprintfl(20,"Received looked-for close connection on %d (fd %d)\n", i, fd);
+ 	    p4_local->conntab[i].type = CONN_REMOTE_CLOSED;
+ 	}
+ 	else {
+diff -x tags -ruN ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_sock_util.c ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_sock_util.c
+--- ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_sock_util.c	Mon Nov 19 11:04:26 2001
++++ ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_sock_util.c	Sun Dec 23 14:31:04 2001
+@@ -2,6 +2,8 @@
+ #include "p4_sys.h"
+ /* p4_net_utils.h generally would suffice here */
+ 
++#include <time.h>
++
+ #ifdef SCYLD_BEOWULF
+ #include <sys/bproc.h>
+ #endif
+@@ -480,9 +482,8 @@
+     return (skt2);
+ }
+ 
+-void get_sock_info_by_hostname(hostname,sockinfo)
+-char *hostname;
+-struct sockaddr_in **sockinfo;
++static void
++get_sock_info_by_hostname(const char *hostname, struct sockaddr_in **sockinfo)
+ {
+ #ifndef P4_WITH_MPD
+     int i;
+@@ -507,11 +508,15 @@
+ /* Error, no sockinfo.
+    Try to get it from the hostname (this is NOT signal safe, so we 
+    had better not be in a signal handler.  This MAY be ok for the listener) */
++    p4_dprintfl(40, "get_sock_info_by_hostname: calling gethostbyname for %s\n",
++      hostname);
+     {
+     struct hostent *hp = gethostbyname_p4( hostname );
+     static struct sockaddr_in listener;
+     if (hp) {
+ 	bzero((P4VOID *) &listener, sizeof(listener));
++	if (hp->h_length != 4)
++	    p4_error("get_sock_info_by_hostname: hp length", hp->h_length);
+ 	bcopy((P4VOID *) hp->h_addr, (P4VOID *) &listener.sin_addr, 
+ 	      hp->h_length);
+ 	listener.sin_family = hp->h_addrtype;
+@@ -532,7 +537,8 @@
+ /* RL
+     struct sockaddr_in listener;
+ */
+-    struct sockaddr_in *sockinfo;
++    struct sockaddr_in sockinfo;
++    struct sockaddr_in *sockinfo_ro;
+ /*    struct hostent *hp; */
+     P4BOOL optval = P4_TRUE;
+     P4BOOL connected = P4_FALSE;
+@@ -545,10 +551,11 @@
+     listener.sin_family = hp->h_addrtype;
+     listener.sin_port = htons(port);
+ */
+-    get_sock_info_by_hostname(hostname,&sockinfo);
+-    sockinfo->sin_port = htons(port);
++    get_sock_info_by_hostname(hostname,&sockinfo_ro);
++    memcpy(&sockinfo, sockinfo_ro, sizeof(sockinfo));
++    sockinfo.sin_port = htons(port);
+ #if !defined(CRAY)
+-    dump_sockaddr("sockinfo",sockinfo);
++    dump_sockaddr("sockinfo", &sockinfo);
+ #endif
+     connected = P4_FALSE;
+     s = -1;
+@@ -569,7 +576,7 @@
+ /*  RL
+ 	SYSCALL_P4(rc, connect(s, (struct sockaddr *) &listener, sizeof(listener)));
+ */
+-	SYSCALL_P4(rc, connect(s, (struct sockaddr *) sockinfo,
++	SYSCALL_P4(rc, connect(s, (struct sockaddr *) &sockinfo,
+ 			       sizeof(struct sockaddr_in)));
+ 	if (rc < 0)
+ 	{
+@@ -683,7 +690,7 @@
+ 	    /* Except on SYSV, n == 0 is EOF */
+ 	    /* Note that this is an error even during rundown because sockets
+ 	       should be closed with a "close socket" message first. */
+-	    p4_error("net_recv read:  probable EOF on socket", read_counter);
++	    p4_error("net_recv read:  probable EOF on socket fd", fd);
+         }
+ #endif
+ 	if (n < 0)
+@@ -896,6 +903,8 @@
+ 	vbuf[1].iov_len  = len;
+ 	n = writev( fd, vbuf, 2 );
+ 	if (n == -1) {
++	    p4_dprintfl(30, "net_send2: writev(fd %d, header_len %d, len %d)"
++	      " returned -1, errno %d, ignoring\n", fd, header_len, len, errno);
+ 	    if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+ 		/* Just pretend nothing was written */
+ 		n = 0;
+@@ -972,7 +981,7 @@
+ #ifndef TIMEOUT_VALUE 
+ #define TIMEOUT_VALUE 60
+ #endif
+-struct hostent *gethostbyname_p4(char *hostname)
++struct hostent *gethostbyname_p4(const char *hostname)
+ {
+     struct hostent *hp;
+ #ifdef SCYLD_BEOWULF
+@@ -1134,7 +1143,7 @@
+ 
+     p4_dprintfl(90,"%s: family=%d port=%d addr=%d.%d.%d.%d\n",
+ 		who,
+-                ntohs(sa->sin_family),
++                sa->sin_family,
+                 ntohs(sa->sin_port),
+                 addr[0], addr[1], addr[2], addr[3]);
+ }
+@@ -1158,3 +1167,60 @@
+ }
+ 
+ #endif
++
++/*
++ * Search the environment for variables which might say that mpiexec
++ * requested stdin be grabbed from the spawning process.  Only happens
++ * in the case of "-allstdin", i.e., where the user requested that the
++ * same input be replicated into each process.
++ */
++void
++mpiexec_reopen_stdin(void)
++{
++    const char *host = getenv("MPIEXEC_STDIN_HOST");
++    const char *sport = getenv("MPIEXEC_STDIN_PORT");
++    struct sockaddr_in sin;
++    char *cq;
++    int fd, port, tries;
++    struct hostent *hp;
++
++    if (!sport || !host)
++	return;
++    hp = gethostbyname_p4(host);
++    if (!hp)
++	p4_error("mpiexec_reopen_stdin: MPIEXEC_STDIN_HOST did not parse", 0);
++    port = strtol(sport, &cq, 10);
++    if (*cq)
++	p4_error("mpiexec_reopen_stdin: MPIEXEC_STDIN_PORT did not parse", 0);
++    fd = socket(AF_INET, SOCK_STREAM, 0);
++    if (fd < 0)
++	p4_error("mpiexec_reopen_stdin: socket", fd);
++    memset(&sin, 0, sizeof(sin));
++    sin.sin_family = AF_INET;
++    sin.sin_port = htons(port);
++    memcpy(&sin.sin_addr, hp->h_addr_list[0], hp->h_length);
++
++    /*
++     * Probably not necessary in the general case, but a swamped mpiexec
++     * stdio process with a short listening backlog might require this.
++     */
++    tries = 0;
++    for (;;) {
++	int cc;
++
++	cc = connect(fd, (struct sockaddr *)&sin, sizeof(sin));
++	if (cc == 0)
++	    break;
++	if ((errno == ECONNREFUSED || errno == EINTR || errno == EAGAIN)
++	  && tries < 5) {
++	    ++tries;
++	    sleep(1);
++	    continue;
++	}
++	p4_error("mpiexec_reopen_stdin: connect", cc);
++    }
++    close(0);
++    dup2(fd, 0);
++    close(fd);
++}
++
+diff -x tags -ruN ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_sys_funcs.h ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_sys_funcs.h
+--- ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_sys_funcs.h	Fri Oct 19 18:01:16 2001
++++ ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_sys_funcs.h	Sun Dec 23 11:08:14 2001
+@@ -51,8 +51,8 @@
+ #if !defined(CRAY)
+ P4VOID dump_sockaddr ( char *, struct sockaddr_in *);
+ P4VOID dump_sockinfo (char *, int);
+-#else
+ #endif
++void mpiexec_reopen_stdin(void);
+ P4VOID get_pipe (int *, int *)	;
+ int getswport (char *);
+ P4VOID handle_connection_interrupt (int);
+@@ -85,7 +85,7 @@
+ /* P4VOID kill_server ( ); */
+ P4VOID listener (void);
+ P4VOID thread_listener (void);
+-struct listener_data *alloc_listener_info (void);
++struct listener_data *alloc_listener_info (int num);
+ struct local_data *alloc_local_bm (void);
+ struct local_data *alloc_local_listener (void);
+ struct local_data *alloc_local_rm (void);
+@@ -105,7 +105,6 @@
+ P4VOID net_setup_listener (int, int, int *)	;
+ /* P4VOID net_setup_named_listener ( )	; */
+ P4VOID net_set_sockbuf_size ( int, int );
+-void get_sock_info_by_hostname ( char *, struct sockaddr_in ** );
+ int num_in_mon_queue (p4_monitor_t *,int);
+ P4VOID alloc_global (void);
+ struct p4_msg *alloc_p4_msg (int);
+@@ -118,9 +117,7 @@
+ struct p4_queued_msg *alloc_quel (void);
+ P4VOID free_avail_quels (void);
+ P4VOID process_args (int *, char **)	;
+-P4BOOL process_connect_request (int)	;
+ /* int process_connection ( ); */
+-P4BOOL process_slave_message (int)	;
+ struct p4_procgroup *alloc_procgroup (void);
+ struct p4_procgroup *read_procgroup (void)	;
+ P4VOID procgroup_to_proctable (struct p4_procgroup *);
+@@ -159,7 +156,7 @@
+ P4VOID zap_remote_p4_processes (void);
+ struct p4_msg *MD_tcmp_recv (void);
+ int MD_tcmp_send (int, int, int, char *, int, int, int);
+-struct hostent *gethostbyname_p4 ( char *);
++struct hostent *gethostbyname_p4 ( const char *);
+ int gethostname_p4( char *, size_t );
+ char *getpw_ss (char *, char * );
+ 
+diff -x tags -ruN ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_utils.c ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_utils.c
+--- ../mpich-1.2.3-alpha-stock/mpid/ch_p4/p4/lib/p4_utils.c	Mon Nov 19 11:04:26 2001
++++ ../mpich-1.2.3-alpha/mpid/ch_p4/p4/lib/p4_utils.c	Sun Dec 23 14:29:25 2001
+@@ -771,6 +771,8 @@
+ }
+ #endif
+ 
++static int n_slaves_left;
++
+ /* This routine is called if the wait fails to complete quickly */
+ #include <sys/time.h>
+ #ifndef TIMEOUT_VALUE_WAIT 
+@@ -781,12 +783,12 @@
+ int sigval;
+ {
+     fprintf( stderr, 
+-"Timeout in waiting for processes to exit.  This may be due to a defective\n\
++"Timeout in waiting for processes to exit, %d left.  This may be due to a defective\n\
+ rsh program (Some versions of Kerberos rsh have been observed to have this\n\
+ problem).\n\
+ This is not a problem with P4 or MPICH but a problem with the operating\n\
+ environment.  For many applications, this problem will only slow down\n\
+-process termination.\n" );
++process termination.\n", n_slaves_left);
+ 
+ /* Why is p4_error commented out?  On some systems (like FreeBSD), we
+    need to to kill the generated rsh processes.
+@@ -874,14 +876,19 @@
+         n_forked_slaves = p4_global->n_forked_pids;
+     else
+         n_forked_slaves = p4_global->n_forked_pids - 1;
++    n_slaves_left = n_forked_slaves;
+     for (i = 0; i < n_forked_slaves; i++)
+     {
+ 	pid = wait(&status);
+ 	if (pid < 0) {
+-	    p4_dprintfl( 90, "wait returned error (EINTR?)\n" );
++	    if (errno != EINTR)
++		p4_error("p4_wait_for_end: wait error", pid);
++	    p4_dprintfl( 90, "wait returned error EINTR\n" );
+ 	    break;
+-	    }
+-	p4_dprintfl(90, "detected that proc %d died \n", pid);
++	}
++	--n_slaves_left;
++	p4_dprintfl(10, "waited successfully for proc %d, %d left\n", pid,
++	  n_slaves_left);
+     }
+ #ifndef CRAY
+     timelimit.it_value	  = tzero;   /* Turn off timer */
+@@ -936,13 +943,6 @@
+ 
+ #   endif
+ 
+-    if (execer_starting_remotes  &&  execer_mynodenum == 0)
+-    {
+-	strcpy(job_filename,"/tmp/p4_");
+-	strcat(job_filename,execer_jobname);
+-	unlink(job_filename);
+-    }
+-
+     if (p4_get_my_id())
+         p4_dprintfl(20,"process exiting\n");
+     p4_dprintfl(90, "exit wait_for_end \n");
+@@ -1106,10 +1106,10 @@
+ 	    msg.type = p4_i_to_n(KILL_SLAVE);
+ 	    msg.from = p4_i_to_n(my_id);
+ 	    msg.to_pid = p4_i_to_n(dest_pid);
+-	    p4_dprintfl(40, "zap_remote_p4_processes: sending DIE to %d on fd=%d size=%d\n",
++	    p4_dprintfl(40, "zap_remote_p4_processes: sending KILL_SLAVE to %d on fd=%d size=%d\n",
+ 			dest_id,dest_listener_con_fd,sizeof(msg));
+ 	    net_send(dest_listener_con_fd, &msg, sizeof(msg), P4_FALSE);
+-	    p4_dprintfl(40, "zap_remote_p4_processes: sent DIE to dest_listener\n");
++	    p4_dprintfl(40, "zap_remote_p4_processes: sent KILL_SLAVE to dest_listener\n");
+ 	    /* Construct a die message for remote listener */
+ 	    if (strcmp(prev_hostname,dest_pi->host_name) != 0 || prev_port != dest_pi->port)
+ 	    {
+@@ -1252,55 +1252,24 @@
+ P4VOID put_execer_port(port)
+ int port;
+ {
+-    int fd;
+-    char job_filename[64];
+-    char port_c[16];
+-
+-    sprintf(port_c,"%d",port);
+-    strcpy(job_filename,"/tmp/p4_");
+-    strcat(job_filename,execer_jobname);
+-    if ((fd = open(job_filename, O_WRONLY | O_CREAT | O_TRUNC, 0600)) < 0)
+-    {
+-	p4_error("put_execer_port: open failed ",fd);
+-    }
+-    if ((write(fd,port_c,strlen(port_c)+1)) != strlen(port_c)+1)
+-    {
+-	p4_error("put_execer_port: write failed ",(-1));
+-    }
+-    close(fd);
+-}
+-
+-int get_execer_port(master_hostname)
+-char *master_hostname;
+-{
+-    int port, num_read, sleep_time, status;
+-    FILE *fp;
+-    char cmd[P4_MAX_PGM_LEN];
+-
+-    sprintf(cmd,"rsh %s cat /tmp/p4_%s",master_hostname,execer_jobname);
+-    num_read = 0;
+-    sleep_time = 4;
+-    while (num_read != 1  &&  sleep_time < 128)
+-    {
+-        if ((fp = (FILE *) popen(cmd,"r")) == NULL)
+-        {
+-	    wait(&status);  /* for the rsh started by popen */
+-            sleep(sleep_time);
+-	    sleep_time *= 2;
+-        }
+-	else
+-	{
+-	    num_read = fscanf(fp,"%d",&port);
+-	    pclose(fp);
+-	}
+-    }
+-
+-    if (num_read != 1)
+-    {
+-	p4_error("get_execer_port: never got good port",(-1));
+-    }
+-
+-    return(port);
++    struct sockaddr_in sin;
++    int len = sizeof(sin);
++    int fd, cc;
++
++    /* send my local listening number to execer_mastport */
++    fd = socket(PF_INET, SOCK_DGRAM, 0);
++    if (fd < 0)
++        p4_error("put_execer_port: socket", errno);
++    sin.sin_family = AF_INET;
++    sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
++    sin.sin_port = htons(execer_mastport);
++    cc = sendto(fd, &port, sizeof(port), 0, (struct sockaddr *)&sin, len);
++    if (cc < 0)
++        p4_error("put_execer_port: sendto", errno);
++    if (cc != sizeof(port))
++        p4_error("put_execer_port: partial write", 0);
++    if (close(fd) < 0)
++        p4_error("put_execer_port: close", errno);
+ }
+ 
+ /* high-resolution clock, made out of p4_clock and p4_ustimer */

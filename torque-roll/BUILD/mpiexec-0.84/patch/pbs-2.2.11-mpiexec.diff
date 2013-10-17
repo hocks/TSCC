@@ -1,0 +1,301 @@
+diff -ruN pbs-2.2.11-stock/README.pw pbs-2.2.11/README.pw
+--- pbs-2.2.11-stock/README.pw	Wed Dec 31 19:00:00 1969
++++ pbs-2.2.11/README.pw	Fri Dec 22 12:13:08 2000
+@@ -0,0 +1,35 @@
++#!/bin/bash
++#
++# Call configure with the right stuff used locally.
++#
++./configure \
++  --prefix=/usr/local/pbs-2.2.11 \
++  --set-server-home=/var/spool/pbs
++# now do:  make -j3 MAKE="make -j3"
++
++#
++# Documentation of changes applied as part of the mpiexec patch.
++#
++##
++# src/include/tm.h
++# Fixed misplaced "typedef" in struct tm_whattodo.h:89.
++#
++# src/lib/Libifl/rpp.c
++# Avoid EINTR in recvfrom by looping it, else bogus error result.
++# Incrcease rpp retry count.
++#
++# src/lib/Libifl/tm.c
++# Do not call DIS_tcp_setup(-1) if connection to the local mom failed
++# after 5 tries.
++#
++# src/resmom/mom_comm.c
++# Fix off-by-one error in saving of envp during TM_SPAWN processing.  Avoid
++# some coredumps due to corruption elsewhere.
++#
++# src/resmom/start_exec.c
++# Added extension to get stdin/out/err files from the environment rather than
++# always using /dev/null during tm_spawn.
++#
++# src/include/net_connect.h
++# Increase max connection idle time.
++#
+diff -ruN pbs-2.2.11-stock/src/include/net_connect.h pbs-2.2.11/src/include/net_connect.h
+--- pbs-2.2.11-stock/src/include/net_connect.h	Mon Oct 18 17:22:01 1999
++++ pbs-2.2.11/src/include/net_connect.h	Mon Dec 18 15:44:12 2000
+@@ -62,7 +62,8 @@
+ #define PBS_NET_TYPE
+ #endif
+ 
+-#define PBS_NET_MAXCONNECTIDLE  900
++/* for use with mpiexec, connection may last quite a bit longer than 15 min */
++#define PBS_NET_MAXCONNECTIDLE  2592000
+ #define PBS_NET_CONN_AUTHENTICATED 1
+ #define PBS_NET_CONN_FROM_PRIVIL  2
+ 
+diff -ruN pbs-2.2.11-stock/src/include/tm.h pbs-2.2.11/src/include/tm.h
+--- pbs-2.2.11-stock/src/include/tm.h	Wed Jul 21 18:56:43 1999
++++ pbs-2.2.11/src/include/tm.h	Mon Dec 18 15:44:12 2000
+@@ -82,11 +82,11 @@
+ **	The tm_whattodo structure contains data for the last
+ **	tm_register event polled.  This is not implemented yet.
+ */
+-struct	tm_whattodo {
++typedef struct	tm_whattodo {
+ 	int		tm_todo;
+ 	tm_task_id	tm_what;
+ 	tm_node_id	tm_where;
+-}	typedef		tm_whattodo_t;
++}	tm_whattodo_t;
+ 
+ /*
+ **	Prototypes for all the TM API calls.
+diff -ruN pbs-2.2.11-stock/src/lib/Libifl/rpp.c pbs-2.2.11/src/lib/Libifl/rpp.c
+--- pbs-2.2.11-stock/src/lib/Libifl/rpp.c	Fri Jul 23 16:58:57 1999
++++ pbs-2.2.11/src/lib/Libifl/rpp.c	Mon Dec 18 15:44:12 2000
+@@ -148,7 +148,7 @@
+ 			         /*every RPP_TIMEOUT seconds              */
+ 
+ 
+-#define	RPP_RETRY	20       /*after this many sendto attempts on a   */
++#define	RPP_RETRY	200       /*after this many sendto attempts on a   */
+ 			         /*packet, give up and declare the stream */
+                                  /*to be in the "stale" state             */
+ 
+@@ -1154,8 +1154,13 @@
+ 	assert(data != NULL);
+ 
+ 	flen = sizeof(struct sockaddr_in);
+-	len = recvfrom(fd, data, RPP_PKT_SIZE, 0,
+-			(struct sockaddr *)&addr, &flen);
++	/*
++	 * loop added to avoid hanging up due to receipt of a signal  --pw
++	 */
++	do {
++		len = recvfrom(fd, data, RPP_PKT_SIZE, 0,
++				(struct sockaddr *)&addr, &flen);
++	} while (len == -1 && errno == EINTR);
+ 	if (len == -1) {
+ 		free(data);
+ 		if (errno == EWOULDBLOCK ||
+diff -ruN pbs-2.2.11-stock/src/lib/Libifl/tm.c pbs-2.2.11/src/lib/Libifl/tm.c
+--- pbs-2.2.11-stock/src/lib/Libifl/tm.c	Fri Apr 16 15:08:19 1999
++++ pbs-2.2.11/src/lib/Libifl/tm.c	Mon Dec 18 15:44:12 2000
+@@ -411,7 +411,9 @@
+ 		}
+ 
+ 	}
+-	DIS_tcp_setup(local_conn);
++	if (local_conn >= 0)
++	    DIS_tcp_setup(local_conn);
++
+ 	return (local_conn);
+ }
+ 
+diff -ruN pbs-2.2.11-stock/src/resmom/mom_comm.c pbs-2.2.11/src/resmom/mom_comm.c
+--- pbs-2.2.11-stock/src/resmom/mom_comm.c	Thu Feb 17 17:56:51 2000
++++ pbs-2.2.11/src/resmom/mom_comm.c	Mon Dec 18 15:44:12 2000
+@@ -537,6 +537,19 @@
+ 		stream_addr = rpp_getaddr(stream);
+ 		node_addr = rpp_getaddr(hp->hn_stream);
+ 
++		/*
++		 * these might become corrupt, avoid coredump  --pw
++		 */
++		if (!stream_addr) {
++		    sprintf(log_buffer, "find_node: stream id %d does not exist",
++		      stream);
++		    log_err(-1, id, log_buffer);
++		}
++		if (!node_addr) {
++		    sprintf(log_buffer, "find_node: node id %d does not exist",
++		      hp->hn_stream);
++		    log_err(-1, id, log_buffer);
++		}
+ 		if (memcmp(&stream_addr->sin_addr, &node_addr->sin_addr,
+ 				sizeof(node_addr->sin_addr)) != 0) {
+ 			sprintf(log_buffer,
+@@ -2581,7 +2594,10 @@
+ 				free(env);
+ 				break;
+ 			}
+-			if (i == numele) {
++			/* need to remember extra slot for NULL at
++			 * the end  --pw
++			 */
++			if (i == numele-1) {
+ 				numele *= 2;
+ 				envp = (char **)realloc(envp,
+ 					numele*sizeof(char **));
+diff -ruN pbs-2.2.11-stock/src/resmom/start_exec.c pbs-2.2.11/src/resmom/start_exec.c
+--- pbs-2.2.11-stock/src/resmom/start_exec.c	Thu Feb 17 17:56:52 2000
++++ pbs-2.2.11/src/resmom/start_exec.c	Fri Dec 22 12:12:05 2000
+@@ -1360,6 +1360,42 @@
+ }
+ 
+ /*
++ * Look for a certain environment variable which has a port# which should
++ * be opened on the MS to establish communication for one of the 3 stdio
++ * streams.  >=0 return is that valid fd, -1 means no env var found,
++ * -2 means malformed env value or failure to connect.
++ */
++static int
++search_env_and_open(const char *envname, u_long ipaddr)
++{
++    static char *id = "search_env_and_open";
++    int i, len = strlen(envname);
++
++    for (i=0; i<vtable.v_used; i++)
++	if (!strncmp(vtable.v_envp[i], envname, len)) {
++	    const char *cp = vtable.v_envp[i] + len;
++	    char *cq;
++	    int fd, port;
++	    if (*cp++ != '=') break;  /* empty, ignore it */
++	    port = strtol(cp, &cq, 10);
++	    if (*cq) {
++		log_err(errno, id, "improper value for MPIEXEC_STD*_PORT");
++		return -2;
++	    }
++#if 0       /* debugging */
++	    log_err(0, "search_env_and_open attempting open", vtable.v_envp[i]);
++#endif
++	    if ((fd = open_demux(ipaddr, port)) < 0) {
++		log_err(errno, id, "failed connect to mpiexec process on MS");
++		log_err(errno, id, vtable.v_envp[i]);
++		return -2;
++	    }
++	    return fd;
++	}
++    return -1;  /* not found */
++}
++
++/*
+ ** Start a process for a spawn request.  This will be different from
+ ** a job's initial shell task in that the environment will be specified
+ ** and no interactive code need be included.
+@@ -1377,7 +1413,7 @@
+ 	int	pipes[2], kid_read, kid_write, parent_read, parent_write;
+ 	int	pts;
+ 	int	i, j;
+-	int	fd;
++	int	fd0, fd1, fd2;
+ 	u_long	ipaddr;
+ 	struct	array_strings	*vstrs;
+ 	struct  startjob_rtn sjr;
+@@ -1598,30 +1634,40 @@
+ 	/*
+ 	** Set up stdin.
+ 	*/
+-	if ((fd = open("/dev/null", O_RDONLY)) == -1) {
++	/* look through env for a port# on MS we should use for stdin */
++	if ((fd0 = search_env_and_open("MPIEXEC_STDIN_PORT", ipaddr)) == -2)
++	    starter_return(kid_write, kid_read, JOB_EXEC_FAIL2, &sjr);
++	/* use /dev/null if no env var found */
++	if (fd0 < 0 && (fd0 = open("/dev/null", O_RDONLY)) == -1) {
+ 		log_err(errno, "newtask", "could not open devnull");
+ 		(void)close(0);
+ 	}
+ 	else {
+-		(void)dup2(fd, 0);
+-		if (fd > 0)
+-			(void)close(fd);
++		(void)dup2(fd0, 0);
++		if (fd0 > 0)
++			(void)close(fd0);
+ 	}
+ 
++	/* look through env for a port# on MS we should use for stdout/err */
++	if ((fd1 = search_env_and_open("MPIEXEC_STDOUT_PORT", ipaddr)) == -2)
++	    starter_return(kid_write, kid_read, JOB_EXEC_FAIL2, &sjr);
++	if ((fd2 = search_env_and_open("MPIEXEC_STDERR_PORT", ipaddr)) == -2)
++	    starter_return(kid_write, kid_read, JOB_EXEC_FAIL2, &sjr);
++
+ 	if (pjob->ji_numnodes > 1) {
+ 		/*
+ 		** Open sockets to demux proc for stdout and stderr.
+ 		*/
+-		if ((fd = open_demux(ipaddr, pjob->ji_stdout)) == -1)
++		if (fd1 < 0 && (fd1 = open_demux(ipaddr,pjob->ji_stdout)) == -1)
+ 		      starter_return(kid_write, kid_read, JOB_EXEC_FAIL2, &sjr);
+-		(void)dup2(fd, 1);
+-		if (fd > 1)
+-			(void)close(fd);
+-		if ((fd = open_demux(ipaddr, pjob->ji_stderr)) == -1)
++		(void)dup2(fd1, 1);
++		if (fd1 > 1)
++			(void)close(fd1);
++		if (fd2 < 0 && (fd2 = open_demux(ipaddr,pjob->ji_stderr)) == -1)
+ 		      starter_return(kid_write, kid_read, JOB_EXEC_FAIL2, &sjr);
+-		(void)dup2(fd, 2);
+-		if (fd > 2)
+-			(void)close(fd);
++		(void)dup2(fd2, 2);
++		if (fd2 > 2)
++			(void)close(fd2);
+ 	
+ 		(void)write(1,pjob->ji_wattr[(int)JOB_ATR_Cookie].at_val.at_str,
+ 		     strlen(pjob->ji_wattr[(int)JOB_ATR_Cookie].at_val.at_str));
+@@ -1631,17 +1677,41 @@
+ 
+             (pjob->ji_wattr[(int)JOB_ATR_interactive].at_val.at_long > 0)) {
+ 		/* interactive job, single node, write to pty */
+-		if ((pts = open_pty(pjob)) < 0) {
++		pts = -1;
++		if (fd1 < 0 || fd2 < 0) {
++		    if ((pts = open_pty(pjob)) < 0) {
+ 			log_err(errno, id,"cannot open slave");
+ 			starter_return(kid_write, kid_read,JOB_EXEC_FAIL1,&sjr);
++		    }
++		    if (fd1 < 0)
++			fd1 = pts;
++		    if (fd2 < 0)
++			fd2 = pts;
+ 		}
+-		(void)dup2(pts, 1);
+-                (void)dup2(pts, 2);
+-
++		(void)dup2(fd1, 1);
++		(void)dup2(fd2, 2);
++		if (fd1 != pts)
++		    (void) close(fd1);
++		if (fd2 != pts)
++		    (void) close(fd2);
+ 	} else {
+ 		/* normal batch job, single node, write straight to files */
+-		if (open_std_out_err(pjob) == -1) {
++		pts = -1;
++		if (fd1 < 0 || fd2 < 0) {
++		    if (open_std_out_err(pjob) == -1)
+ 			starter_return(kid_write, kid_read,JOB_EXEC_FAIL1,&sjr);
++		}
++		if (fd1 >= 0) {
++		    (void) close(1);
++		    (void) dup2(fd1, 1);
++		    if (fd1 > 1)
++			(void) close(fd1);
++		}
++		if (fd2 >= 0) {
++		    (void) close(2);
++		    (void) dup2(fd2, 2);
++		    if (fd2 > 2)
++			(void) close(fd2);
+ 		}
+ 	}
+ 

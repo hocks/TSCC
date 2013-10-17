@@ -1,0 +1,6 @@
+
+# PCRE Definitions
+export REGEXLIB = "-lpcreposix -lpcre"
+export REGEXIP  = "-IFALSE/include"
+export REGEXLP  = "-LFALSE/lib" 
+export REGEXDEF = "-DPCRE"

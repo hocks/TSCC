@@ -1,0 +1,646 @@
+Mpiexec is a replacement program for the script mpirun, which is part
+of the mpich package.  It is used to initialize a parallel job from
+within a PBS batch or interactive environment.
+
+See the man page for detailed information.
+
+Copyright (C) Pete Wyckoff, 2000-8.  <pw@osc.edu>
+
+Installation instructions
+-------------------------
+
+1.  First, figure out what version of PBS you are using.  Torque is highly
+    recommended, but you might also use its predecessor OpenPBS or the
+    non-free PBSPro.
+
+    Known good PBS versions include:
+
+	Torque 1.2.0 through 2.1.6 and beyond
+	    (http://www.supercluster.org/projects/torque/)
+	OpenPBS-2.3.11 through .16  (http://www.openpbs.org)
+	SPBS 1.0.0 rc1 through rc4  (discontinued)
+
+    If you're using Torque, no patches are required.  OpenPBS will need
+    one patch to enable all the functionality.  PBSPro cannot be patched,
+    but mpiexec includes some hacks to make it work properly.  Recent
+    PBSPro (version 8?) does not work with mpiexec.  There is a
+    temporary PBSPro-only patch from Matt Ford here:
+
+	http://email.osc.edu/pipermail/mpiexec/2007/000842.html
+
+1a. OpenPBS patch.
+
+    This patch adds the functionality which allows the stdio streams from a
+    parallel process to be sent directly to mpiexec.  It also provides the
+    capability to send stdin to more than just process number zero, if you
+    so choose.  It is not mandatory to apply this patch, in which case
+    these stdio redirection features will not work, but the basic MPI
+    spawning through the TM interface of PBS will still function just fine.
+
+    See the Historical Notes below for information on use with PBSPro or
+    older versions (< 2.3.12) of OpenPBS.
+
+    Apply the patch doing something like this:
+
+	cd /usr/local/src/pbs-2.3.12
+    	patch -p1 -sNE < /home/pw/src/mpiexec/patch/pbs-2.3.12-mpiexec.diff
+
+    Attempts have been made so that the behavior of PBS does not change
+    unless explicitly instructed to do so by mpiexec.  You'll need to build
+    and install PBS as usual, then restart all the MOMs on the compute
+    nodes.
+
+1b. (EXPERIMENTAL)  A second patch to PBS is necessary if you would like
+    mpiexec jobs to survive across a restart of the pbs_mom using the "-p"
+    flag to reattach existing jobs.  If you do not plan to kill and restart
+    pbs_mom on a node while it has jobs running, do not bother with this
+    patch, however it should do no harm.
+
+    It does four things:
+
+	- Fix coredump resulting from tm_spawn to restarted pbs_mom
+	- Avoid race condition by which pbs_mom would sometimes kill itself
+	  as tasks exit.
+	- Make a restarted pbs_mom search for and report exiting tasks
+	  from jobs which were started before the old mom was killed.
+	- Change response of pbs_mom to various signals.  Now the default
+	  is to leave all jobs running.  If you want to stop all jobs,
+	  USR1 can be used to achieve the old behavior.
+
+    Without this patch, mpiexec will exit with "tm: system error" when the
+    new pbs_mom is started with the "-p" argument.
+
+    If you want to experiment with this capability, apply the second
+    patch similarly.  Be warned that this adds a function to the machine-
+    specific code for linux, but no other architectures, thus this
+    entire experiment requires linux:
+
+    	patch -p1 -sNE < /home/pw/src/mpiexec/patch/pbs-2.3.12-mom-restart.diff
+
+    Note that on my linux redhat 7.3 systems, PBS 2.3.12 will not actually
+    compile out of the box without another patch unrelated to mpiexec.
+    Grab and apply
+	http://www.osc.edu/~pw/pbs/no-linux-headers.patch
+    if this is the case for you, or read about all the patches we use at
+	http://www.osc.edu/~pw/pbs/
+
+1c. Old MPICH/P4 only.  If you are using an mpich older than 1.2.4, see the
+    mpich section below for a necessary patch.
+
+1d. Old MPICH/GM only.  WARNING!  If you are using an MPICH-GM distribution
+    from Myricom that is older than 1.2.4..8, this version of mpiexec will
+    not work.  Fall back to mpiexec-0.69 or upgrade your mpich-gm.
+
+1e. Old Torque only.  You need the patch distributed here in patch/
+    torque-1.1.0p0-mpiexec.diff.
+
+2.  Run ./configure with the usual configure syntax.  There is one
+    mandatory configure option, plus some other ones described below.
+
+
+    Choosing a default communication device.
+
+    You must choose a default communication device, that is, what variant
+    of MPI library and network interfaces are used by your machines.  Try
+    to pick the one that your users will use most often, e.g.:
+
+	--with-default-comm=mpich-p4
+
+    otherwise your users will always have to specify
+
+	--comm mpich-p4
+
+    at every invocation of mpiexec (or use an environment variable) to
+    override your default.  The current list of devices is:
+
+	--with-default-comm=(mpich-gm|mpich-mx|mpich-p4|mpich-ib|mpich-psm|
+			     mpich-rai|mpich2-pmi|lam|shmem|emp|portals|none)
+
+    If the user does not use the "-comm" argument to mpiexec, and does not
+    set the MPIEXEC_COMM environment variable, this named communication
+    device will be used.
+
+
+    PBS options.
+
+    --with-pbs=PATH
+
+	Specify the location of the PBS library.  Default is
+	/usr/local/pbs, where the Makefile will expect to find
+	files lib/libpbs.a and lib/liblog.a containing the TM interface
+	functions, and header file include/tm.h.
+
+    --enable-pbspro-helper
+
+	Choose this option if you use PBSPro.  That batch system does
+	not have the mpiexec patch, and unless you have the source and
+	have patched it yourself, you will not get standard IO streams
+	redirection.  This builds a separate executable that handles the
+	redirection for the processes, then starts the parallel code.
+	Do not use this option for OpenPBS or Torque.  See the man page
+	for mpiexec-redir-helper for more information.
+
+
+    Rarely used configure options.
+
+    --with-mpicc=PATH
+    --with-mpif77=PATH
+
+	Name of mpicc code or script used to compile an mpi program.  This
+	is only used for the test program and will not affect your mpiexec
+	at all.  Default is "mpicc" which will look in your path for a
+	suitable script.  Another possible choice would be, for example:
+	"--with-mpicc=/home/frog/my-mpich/bin/mpicc".  Similar option for
+	finding a fortran compiler, again completely optional.
+
+    --with-sed=PATH
+
+	Name of external program to use to implement --transform-hostname.
+	This defaults to "sed" whose location is then looked up in the current
+	path when configure is run.  The exact location must be available
+	on the compute nodes when mpiexec runs.  You may supply a different
+	path or program name here too.  If the argument is absolute, with a
+	leading '/', it is accepted as given, otherwise it is searched for in
+	the current path.
+
+	Crazy example for perl devotees:  configure --with-sed=perl.
+	Then at runtime one might do:
+	mpiexec --transform-hostname='while (<>) { s/amd/mamd/; print }'.
+
+    (EXPERIMENTAL)
+    --with-fast-dist=PATH
+
+	Normally mpiexec expects all the compute nodes to share a file
+	system where the executable program lives, such as NFS from a
+	single server.  If this is not the case, it is up to you to move
+	the program out to the same location on all the nodes in advance.
+
+	This option lets you use an external program to move the executable
+	to the compute nodes with a fast, tree-based algorithm that
+	operates natively on InfiniBand.  It is extremely quick compared to
+	NFS.  To enable mpiexec to stage executables, install the code from
+	http://www.osc.edu/~dennis/fastdist/ and compile mpiexec to tell it
+	where to find the program "fast_dist".  If you do not give an
+	absolute path for PATH, configure will search for it in your current
+	PATH.
+
+
+    Now for the individual communication libraries, and their options.  It
+    is quite likely that you will not need to be concerned with any of this
+    section.  Every version of MPI that mpiexec knows about will be
+    supported in the resulting code, but you can choose to disable the ones
+    you don't want.  Note that no MPI libraries are required, so there is
+    no need to disable an option just because you don't currently use it on
+    your system.  They're harmless.
+
+
+
+    MPICH/GM and MPICH/MX
+
+    --disable-mpich-gm
+
+	Disable the use of Myrinet devices using MPICH over GM or MX.  Default
+	is to support MPICH/GM and MPICH/MX.  Note that MX is the newer
+	message passing interface from Myricom, but it is handled in
+	mpiexec with the same code that does MPICH/GM.
+
+    MPICH/p4
+
+    --disable-mpich-p4
+
+	Disable the use of sockets devices using MPICH with the p4 library.
+	This is what people generally use with ethernet hardware.  Default
+	is to include support for MPICH/p4.
+
+    --disable-p4-shmem
+
+	For SMP machines, specify that MPICH/P4 was compiled without shared
+	memory support.  You must select whether you plan to use shared
+	memory with MPICH/P4 when you compile the mpich library.  To use
+	shared memory, add the configure option "--with-comm=shared" when
+	you build mpich.  It is highly recommended that you enabled
+	shared-memory communication in this way.
+
+	Then when you configure mpiexec, if you have added that option to
+	the mpich build, it is not necessary to do anything.  However, if
+	you choose NOT to build mpich/p4 to use shared memory, you should add
+	the flag "--disable-p4-shmem" here.  Note that you must make sure
+	that mpich and mpiexec are compatible in this regard or applications
+	will not start.
+
+	The mpiexec command-line flags "-mpich-p4-no-shmem" and
+	"-mpich-p4-shmem" can be used to specify MPICH/P4 configuration
+	information explicitly at runtime, overriding this compile option.
+
+	To summarize, configure lines should match as follows:
+	    mpich/configure --with-device=ch_p4 --with-comm=shared ...
+	    mpiexec/configure --with-default-comm=mpich-p4 ...
+	Or
+	    mpich/configure --with-device=ch_p4 ...
+	    mpiexec/configure --with-default-comm=mpich-p4
+	      --disable-p4-shmem ...
+
+    MPICH/IB
+
+    --disable-mpich-ib
+
+	Disable the ability to start parallel processes compiled against
+	an InfiniBand version of MPICH.  More information about this device
+	can be found at http://nowlab.cis.ohio-state.edu/projects/mpi-iba/.
+
+	This version of mpiexec supports OSU MVAPICH releases 0.9.2 and
+	later, up through 1.0 and possibly later, by autodecting during
+	process startup based on a version number in the protocol and some
+	heuristics.
+	
+	Note that in 1.0, mvapich made a major switch in its startup
+	protocol to something that looks like PMI, but isn't, and has
+	collective behavior.  It is implemented in mpiexec by copying the
+	relevant mpirun-side files from mvapich.
+
+    MPICH/PSM
+
+    --disable-mpich-psm
+
+	Disable support for QLogic's InfiniPath version of MPICH. Initially
+	based on MPICH 1.2.6, this MPICH version uses QLogic's PSM
+	communication layer.
+
+	This version of mpiexec supports QLogic InfiniPath release 2.1 and
+	later (earlier versions did not expose a protocol suitable for
+	mpiexec).
+
+    MPICH/RAI
+
+    --disable-mpich-rai
+
+	Disable the code to start parallel processes compiled against the
+	Rapid Array Interconnect version of MPICH used by Cray on their XD1
+	machines.  These are Opteron clusters with custom message passing
+	code on an Infiniband physical-layer transport.  The MPICH device
+	comes from the MVIA heritage and thus looks a lot like the
+	old-style MPICH/IB startup code.
+
+    MPICH2/PMI
+
+    Do not compile MPICH2 to use the SMPD process manager.  It appears
+    to offer no advantages over the default MPD, and does not work with
+    mpiexec.  That could be fixed, if there were a compelling reason to
+    do so.  (The other offered process manager is gforker, which is also
+    not very interesting, as it only works on a single node.)
+
+    --disable-mpich2-pmi
+
+	Disable the ability to start parallel processes compiled against
+	the MPICH2 library PMI process management interface.  This
+	mechanism is designed to support all underlying communication
+	hardware supported by the new MPICH2 library.  More information
+	is available at http://www-unix.mcs.anl.gov/mpi/mpich2/.
+
+	This code is known to work with the ch3 device in MPICH2, but
+	may work with other devices as they become available.  When compiling
+	ch3, you have a choice of channels.  These are known to work
+	as of mpich2-1.0.1 and mpiexec-0.78:
+
+	    --with-device=ch3:sock
+	    --with-device=ch3:shm
+	    --with-device=ch3:ssm
+
+	Unlike with MPICH1, it is not necessary to explain to mpiexec which
+	variant you plan to use.
+
+	Note that as of mpich2-1.0.3, MPI_Abort called in one task does not
+	try to terminate the entire parallel process.  It would be nice if
+	the aborting process told the process manager that an abort is in
+	progress.  This does happen in mpich1/gm, mpich1/ib, and partially
+	in mpich1/p4.  Instead, in mpich2, the processes not calling
+	MPI_Abort will exit only if they happen to try to communicate with
+	the aborting process.  Watch PMI_Abort() in
+	mpich2/src/pmi/simple/simple_pmi.c to see if they ever add this
+	functionality, at which time we can add support to mpiexec.
+
+    LAM
+
+    --disable-lam
+
+	Disable the use of the LAM device.  There really isn't any code in
+	here specific to LAM, as mpiexec is used only to startup the lamd
+	on each node, and it spawns the actual user applications.  The LAM
+	device acts exactly like the "none" device.  There are more notes
+	on LAM at the bottom of this file, and in README.lam.
+
+    SHMEM
+
+    --disable-shmem
+
+	Disable the use of the SHMEM device.  The SHMEM device is only used
+	on single-node configurations, like for large SMPs.  There is no
+	support for ethernet or any other out-of-box communication.  The
+	options above about shmem under the P4 and GM sections are not
+	related to this SHMEM device, but rather sub-drivers in the P4 and
+	GM drivers, respectively.  If you have just one big Sun or HP SMP
+	machine, for example, or some other single node multi-processor box
+	you will want to use the SHMEM device.
+
+    EMP
+
+    --disable-emp
+
+	Disable the use of the EMP device.  The procedure to startup an EMP
+	job is much like that of GM, without the need for a globally
+	readable configuration file.  More information about EMP is
+	available at http://www.osc.edu/~pw/emp/.
+
+    PORTALS
+
+    --disable-portals
+
+	A rather hacky, partial implementation of Portals support.  It
+	assumes the use of the user-space TCP implementation of Portals,
+	and that you will be using eth0 for communication.  It does set
+	up the nidmap and pidmap environment variables, though, which is
+	a pain to do by hand.  Big machines that use Portals have their
+	own job launcher, called yod.
+
+    NONE
+
+    --disable-none
+
+	This communication layer does not set anything in the environment,
+	or build any configuration files.  Handy if you want to run
+	something on each processor of your job allocation without wanting
+	mpiexec to bother to build an environment for it.
+
+3.  Build it:
+
+	make
+
+    Note that GNU make is required.  It may be called "gmake" on your
+    system.
+
+4.  Run the tests. (OPTIONAL)  You'll need a working MPICH of some flavor
+    to build the hello test program.  The default compiler used for this
+    task is "mpicc" unless you have configured with the "--with-mpicc"
+    switch.
+
+	make hello
+
+    After compiling, be sure to take a look at the script "runtests.pl",
+    especially the comments towards the top where there are some configurable
+    items.  Then run it:
+
+	./runtests.pl
+
+    It invokes the batch systemm once for each of about 50 tests.  Each
+    of these creates many little files:
+
+	testqs.* - PBS job scripts submitted with qsub
+	testqo.* - PBS joined stdout/stderr
+	testho.* - mpiexec joined stdout/stderr
+	testc.*  - config file passed to mpiexec with "-config" flag
+
+    Successful tests will show the one-line qsub output and print dots
+    until the test is complete.  Unsuccessful runs might say
+    "Got 7 lines in ..., expected 8" or "Unexpected line: ...", in which
+    case you may want to investigate the relevant output files.  Expect the
+    "-segv" tests to generate some unexpected lines which vary depending
+    on the communication library.  Also, the shell tests can cause some
+    problems depending on what you have in /etc/shells and /etc/profile.d,
+    etc.  When done,
+
+    	rm test*
+
+    to cleanup.  There's no need to look at the successful output files
+    unless you're curious what happened.
+
+5.  Install:
+
+	make install
+
+    This puts the executable in /usr/local/bin (or <prefix>/bin if you have
+    told configure otherwise using, e.g. --prefix), and a man page in
+    /usr/local/man/man1.  You may need to be root to do this.
+
+6.  Cleanup:
+
+	make clean
+
+    Or "make distclean" if you want to zap the config.* output files too.
+
+
+Concurrent tests
+----------------
+The concurrent mpiexec feature is described in the man page.  It allows
+running multiple independent parallel programs in the same batch job.  Each
+parallel program has its own invocation of mpiexec, with all the subsequent
+ones relying on the first for communication with PBS (as required per
+limitations in the TM library).
+
+It creates a directory /tmp/mpiexec-sock with permissions 01777 and a
+separate subdirectory in the format <username> with permisssions 00700
+under that, one for each user.  Named pipes of the form <jobid>.<hostname>
+are used for communication in the context of a single PBS job.  It tries to
+clean up after itself but will handle gracefully the case where any of the
+directories or files still exist.
+
+You can test this concurrent code by starting an interactive job with a
+bunch of processors, and inside the shell of the job, run "./contests.pl".
+It needs the "hello" program to exist just like runtests.pl.  You'll see
+a bunch of dots indicating each invocation successfully running, for some
+large number of these in parallel.  If there is any output text, try to
+figure out the problem and send mail to the list if there seems to be a
+bug.
+
+
+Problems?
+---------
+Please see the FAQ file in the mpiexec distribution for answers to
+common questions.
+
+
+Historical notes
+----------------
+The items in this section were necessary for older versions of related
+software.  For current releases, none of this is necessary.
+
+1.  Upgrading from a previous version of mpiexec.
+
+    Starting with mpiexec-0.64, a new patch, pbs-2.3.12-mpiexec.diff, is
+    included which changes the operation of PBS _not_ to pass a job cookie
+    at the start of every output stream.  This gets in the way of running
+    multiple parallel jobs within a single batch job.  It seems PBS
+    included the idea of a job cookie to add some security, but it is a
+    rather weak form of security to protect a minor hole with little
+    potential exploit gain (no root interactions).
+
+    If you had an older version of mpiexec, which included its patch to
+    PBS, you should reverse this one out first:
+
+	cd /usr/local/src/pbs-2.3.12
+    	patch -p1 -sRE < /home/pw/src/mpiexec/patch/pbs-2.3.11-mpiexec.diff
+
+    Then continue as above to apply the _new_ PBS patch and recompile.  If
+    you don't want to do this, it's not a big deal, but you will see a
+    32-character string in your output before each node does its first
+    communication to stdout/stderr.
+
+2.  MPICH/P4 versions older than 1.2.4 only.
+
+    Apply the patch to your mpich tree and rebuild it.
+    Watch out!  It's important to look at the timestamp in
+    $mpich/include/patchlevel.h to know which patch you need.  Depending
+    on when you downloaded the tarball from Argonne, you'll have a possibly
+    different version.  Here is the example for an MPICH distribution
+    grabbed sometime between 19 Nov 01 and 18 Jan 02.  Note that the
+    patch for the later MPICH distribution got quite smaller.  Thanks to
+    the MPICH developers for being willing to integrate my fixes.
+
+        cd /usr/local/src/mpich-1.2.3-alpha-011119
+	patch -p1 -sNE < ~/src/mpiexec/patch/mpich-1.2.3-alpha-011119-mpiexec.diff
+	make
+	make install
+
+    This is a necessary step to support older MPICH/P4 with mpiexec.  If
+    you do not plan to use MPICH with ethernet cards for message passing,
+    ignore this patch.
+
+3.  OpenPBS versions older than 2.3.12.
+
+    Older versions of PBS need more extensive bug fixes as well as the above
+    functionality additions.  Mpiexec will not work at all without the
+    patch.  A patch against pbs-2.2.11 is provided in this distribution for
+    those that want to use mpiexec with older PBS.
+
+    You will also have to configure mpiexec with another option to satisfy
+    an older PBS distribution:
+
+    --with-pbssrc=PATH
+
+	This option is _only_ necessary with versions of pbs older
+	than 2.3.5.  Before that patch, the necessary header file which
+	exports the TM functions was not installed, hence we need to
+	go wading through the source tree to find it ourselves.  You
+	probably don't need this option, and if you do, you will be told
+	noisily during configure.  Default is unset.
+
+
+MPICH/p4 notes
+--------------
+There were quite a number of issues to work out in support MPICH/P4.
+
+1.  --with-comm=shared
+
+    I'll point out that you must compile mpich with "--with-comm=shared" to
+    have SMP work, which is what most people with SMP machines want.  Maybe
+    it is in the documentation, but I did not realize for some time.  There
+    is a configure option to mpiexec if you really do not want to compile
+    mpich with the shared option, see --disable-p4-shmem above.
+
+2.  Spawn interface
+
+    With MPICH/GM, you just start up the processes with certain environment
+    variables on the machines you've been allocated, point them all to the
+    same configuration file, and they find each other and run in parallel.
+
+    With MPICH/P4, the code is designed to be started from a single machine,
+    which then uses rsh to start the rest of the processes.  This won't work
+    with mpiexec, and is a bad idea under PBS because you lose all the
+    accounting information, one of the reasons mpiexec even exists.
+
+    Thus, is there available in MPICH some interface which can defeat the
+    self-spawning mechanism via rsh?
+
+2a.  P4
+
+    The P4 option "-p4norem" isn't acceptable because it would require
+    mpiexec to read the stdout of process number zero to determine which
+    jobs to start and in what order.  Definitely non-scalable, and the
+    requirement that the user application not call printf() before
+    MPI_Init() seemed too onerous.  True, I could have disabled the
+    printf() and gone grepping through /proc for the socket, but it still
+    requires one-at-a-time startup.
+
+2b.  Execer
+
+    The execer interface was what I ended up using, but it required large
+    modifications.  The examples that come with mpich which use the execer
+    interface were not working due to argument mismatch, so I felt it okay
+    to revamp the way the library interpreted the arguments.  The idea is
+    that you start the "big master" process with a list of all the other
+    nodes in the job on the command line.  Each of the "remote master"
+    processes gets a small amount of information on the command line, and a
+    pointer to the host/port where the big master is listening.  Thus we
+    must start process number zero, wait for him to initialize, then start
+    the rest.
+
+    Bits I removed from the execer interface:  originally all the remote
+    masters would do a loop of "rsh <bigmaster> cat /tmp/p4_5656" to get
+    the port on which the big master was listening.  Blecch.  Instead I
+    introduced that ordering constraint mentioned above.  Rather than
+    having the big master write to a file in /tmp, I tell it to connect to
+    mpiexec to give it the port number, which is then passed on the command
+    line to all the other processes.
+
+    Note that MPICH/P4 has hardcoded into it that the "big master" connects
+    to an execer on localhost to write this port number.  The implication
+    is that mpiexec must run on the same machine as process #0, thus the
+    -nolocal option will not work.
+
+2c.  MPD
+
+    None of this relates with MPD at all.  MPD is another daemon which runs
+    on the compute nodes and can spawn MPICH processes.  It does not
+    interact with PBS with regards to accounting, allocations, etc.
+
+2d.  Thread (vs process) listener
+
+    Do not define THREAD_LISTENER, only the process listener code has been
+    modified to work properly with execer_starting_remotes.
+
+
+MPICH/gm notes
+--------------
+In the old days, before mpich-1.2.4..8, starting up MPICH-GM parallel
+processes was relatively simple.  Provide a global file on a shared file
+system which explained the configuration of the machine, and all processes
+would read through that.  That worked well assuming you had such a file
+system.
+
+Starting with mpich-1.2.4..8, Myricom chose to get rid of that global
+file, and instead requires multiple communication from the startup process,
+such as mpiexec or mpirun.ch_gm, to each of the slave processes.  Mpiexec
+opens two listening sockets and starts each process independently.  They
+each connect back to mpiexec and provide information including the Myrinet
+board and port number to be used by that process.  That first listening
+socket is closed.
+
+Then we repeat: each process again calls back to the second listening
+socket opened by mpiexec, sends a magic number, then expects mpiexec to
+send out the global and local mapping information.  This second socket is
+then closed, but mpiexec continues to listen as a new connection might be
+initiated by a process to request an MPI_Aborts and teardown of the entire
+job.  Why two sockets?  Dunno, ask Myricom.  Inside mpiexec we use a second
+process to handle the stdio because the initial process is trapped blocking
+in a TM call, so this second listening socket must be passed between the
+processes since to close it and reopen would risk losing an abort message.
+What a pain.  Count the packet round trips, multiply number of nodes and
+figure out how well this all will scale.
+
+
+LAM notes
+---------
+Please see README.lam.  It will point out that your patched LAM will use
+mpiexec to talk to PBS, but that you still use lamboot and lamrun in your
+batch script as usual.
+
+
+TODO
+----
+Allocate a TTY so that readline works for stdin operations, if
+requested.
+
+Consider integrating some debugging facility, like gdb with multiple
+threads.  Need the TTY allocation probably for this to work.
+
+
+# vim: set tw=75 :

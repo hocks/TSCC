@@ -1,0 +1,67 @@
+#
+# RPM spec file, initially written by Ben Webb.
+#
+# $Id: mpiexec.spec.in 347 2006-03-17 20:03:48Z pw $
+#
+# Copyright (C) 2002-6 Pete Wyckoff <pw@osc.edu>
+#
+
+Name:          mpiexec
+Version:       @version@
+Release:       1
+License:       GPL
+Summary:       MPI job launcher that uses the PBS task interface directly
+Vendor:        Pete Wyckoff <pw@osc.edu>
+URL:           http://www.osc.edu/~pw/mpiexec/
+Group:         Applications/Engineering and Scientific
+Source0:       %{name}-%{version}.tgz
+BuildRoot:     %{_tmppath}/%{name}-%{version}
+
+%description
+Mpiexec gathers node settings from PBS, prepares for the MPI library run
+environment, and starts tasks through the PBS task manager interface.
+Attempts to duplicate mpirun as much as possible, while getting everything
+correct, and being faster than rsh.  As a side effect, PBS maintains
+proper accounting of all tasks of a parallel job, and can terminate
+everything on job abort.
+
+%prep
+%setup -q
+
+#
+# The default PBS location is --with-pbs=/usr/local/pbs
+# You may want to change it for your actual PBS install path.
+#
+# If (and only if) using PBSPro, be sure to add --enable-pbspro-helper.
+#
+# The default MPI library type is GM, but you can change that here.
+# You can override it at runtime, too, with, e.g. "--comm=ib".
+#
+%build
+%configure --with-pbs=/usr/local/pbs --with-default-comm=gm
+make
+
+%install
+make DESTDIR=${RPM_BUILD_ROOT} install
+
+%clean
+rm -rf ${RPM_BUILD_ROOT}
+
+%files
+%defattr(-,root,root)
+%{_bindir}/*
+%{_mandir}/man1/*
+
+%changelog
+* Fri Mar 17 2006 Pete Wyckoff <pw@osc.edu>
+- Auto-generate as part of build to get version.
+
+* Thu Dec 22 2005 Pete Wyckoff <pw@osc.edu> 0.80-2
+- Add default comm explicitly, cleanup.
+
+* Fri Mar 19 2004 Pete Wyckoff <pw@osc.edu>
+- Update version, remove old-time flag.
+
+* Mon May 27 2002 Ben Webb <ben@bellatrix.pcl.ox.ac.uk>
+- Initial build, with mpiexec CVS, and spec file based on our own
+  site-specific one

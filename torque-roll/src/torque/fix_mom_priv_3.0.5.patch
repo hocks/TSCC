@@ -1,0 +1,26 @@
+diff -up ./src/server/process_request.c.orig ./src/server/process_request.c
+--- ./src/server/process_request.c.orig	2013-09-07 01:31:35.789779661 +0200
++++ ./src/server/process_request.c	2013-09-07 01:35:44.392759678 +0200
+@@ -679,6 +679,22 @@ void process_request(
+         log_buffer);
+       }
+ 
++    if (svr_conn[sfds].cn_authen != PBS_NET_CONN_FROM_PRIVIL)
++      {
++	sprintf(log_buffer, "request type %s from host %s rejected (connection not privileged)",
++		reqtype_to_txt(request->rq_type),
++		request->rq_host);
++
++      log_record(PBSEVENT_JOB, PBS_EVENTCLASS_JOB, id, log_buffer);
++
++      req_reject(PBSE_BADHOST, 0, request, NULL, "request not authorized");
++
++      close_client(sfds);
++
++      return;
++      }
++
++
+ /*    if (!tfind(svr_conn[sfds].cn_addr, &okclients)) */
+     if (!AVL_is_in_tree(svr_conn[sfds].cn_addr, 0, okclients))
+       {

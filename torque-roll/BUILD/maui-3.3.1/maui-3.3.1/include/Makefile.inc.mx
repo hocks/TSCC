@@ -1,0 +1,6 @@
+
+# MX Definitions
+export MXDEF  =-D__MX
+export MXLP   =-L/opt/maui/lib
+export MXIP   =-I/opt/maui/include 
+export MXLIB  =-lg2 -lsu -lpthread  

@@ -1,0 +1,17 @@
+diff -up ./contrib/init.d/pbs_server.orig ./contrib/init.d/pbs_server
+--- ./contrib/init.d/pbs_server.orig	2012-05-13 18:37:42.099397664 +0200
++++ ./contrib/init.d/pbs_server	2012-05-13 18:37:49.374453102 +0200
+@@ -15,10 +15,9 @@ create() {
+         exit 1
+     fi
+ 
+-    $PBS_DAEMON -d $PBS_HOME -t create &
+-    while [ ! -r $PBS_SERVERDB ]; do
+-        sleep 1
+-    done
++    $PBS_DAEMON -d $PBS_HOME -t create -f &
++    sleep 1
++    /opt/torque/bin/qterm
+     killproc pbs_server
+     RET=$?
+ }

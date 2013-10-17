@@ -1,0 +1,263 @@
+diff -ruN pbs-2.3.12/README.mpiexec pbs-2.3.12-old/README.mpiexec
+--- pbs-2.3.12/README.mpiexec	Wed Dec 31 19:00:00 1969
++++ pbs-2.3.12-old/README.mpiexec	Tue Dec  4 17:48:09 2001
+@@ -0,0 +1,24 @@
++
++Documentation of changes applied as part of the mpiexec patch.
++http://www.osc.edu/~pw/mpiexec/
++Last changed 04 Dec 2001.
++
++
++General bug fix:
++
++    src/lib/Libifl/tm.c
++
++	Do not call DIS_tcp_setup(-1) if connection to the local mom failed
++	after 5 tries.
++
++Functionality additions:
++
++    src/resmom/start_exec.c
++
++	Added extension to get stdin/out/err files from the environment rather
++	than always using /dev/null during tm_spawn.
++
++    src/cmds/pbs_demux.c
++
++	Never expect a PBS_JOBCOOKIE to be delivered from a process.
++
+diff -ruN pbs-2.3.12/src/cmds/pbs_demux.c pbs-2.3.12-old/src/cmds/pbs_demux.c
+--- pbs-2.3.12/src/cmds/pbs_demux.c	Tue Aug  8 20:16:35 2000
++++ pbs-2.3.12-old/src/cmds/pbs_demux.c	Tue Dec  4 14:15:27 2001
+@@ -106,10 +106,8 @@
+ struct routem {
+ 	enum rwhere	r_where;
+ 	short		r_nl;
+-	short		r_first;
+ };
+ fd_set readset;
+-char   *cookie = 0;
+ 
+ 
+ void readit(int sock, struct routem *prm)
+@@ -127,18 +125,6 @@
+ 
+ 	i = 0;
+ 	if ((amt = read(sock, buf, 256)) > 0) {
+-	    if (prm->r_first == 1) {
+-
+-		/* first data on connection must be the cookie to validate it */
+-
+-		i = strlen(cookie);
+-		if (strncmp(buf, cookie, i) != 0) {
+-		    (void)close(sock);
+-		    prm->r_where = invalid;
+-		    FD_CLR(sock, &readset);
+-		}
+-		prm->r_first = 0;
+-	    }
+ 	    for (pc = buf+i; pc < buf+amt; ++pc) {
+ #ifdef DEBUG
+ 		if (prm->r_nl) {
+@@ -176,22 +162,12 @@
+ 
+ 
+ 	parent = getppid();
+-	cookie = getenv("PBS_JOBCOOKIE");
+-	if (cookie == 0) {
+-		fprintf(stderr, "%s: no PBS_JOBCOOKIE found in the env\n",
+-			argv[0]);
+-		exit(3);
+-	}
+-#ifdef DEBUG
+-	printf("Cookie found in environment: %s\n", cookie);
+-#endif
+ 
+ 	maxfd = sysconf(_SC_OPEN_MAX);
+ 	routem = (struct routem *)malloc(maxfd*sizeof(struct routem));
+ 	for (i=0; i<maxfd; ++i) {
+ 		(routem+i)->r_where = invalid;
+ 		(routem+i)->r_nl    = 1;
+-		(routem+i)->r_first = 0;
+ 	}
+ 	(routem+main_sock_out)->r_where = new_out;
+ 	(routem+main_sock_err)->r_where = new_err;
+@@ -244,7 +220,6 @@
+ 				newsock = accept(i, 0, 0);
+ 				(routem+newsock)->r_where =  (routem+i)->r_where== new_out ? old_out : old_err;
+ 				FD_SET(newsock, &readset);
+-				(routem+newsock)->r_first = 1;
+ 				break;
+ 			case old_out:
+ 			case old_err:
+diff -ruN pbs-2.3.12/src/lib/Libifl/tm.c pbs-2.3.12-old/src/lib/Libifl/tm.c
+--- pbs-2.3.12/src/lib/Libifl/tm.c	Mon Jan 15 16:50:21 2001
++++ pbs-2.3.12-old/src/lib/Libifl/tm.c	Sun Aug 12 17:16:15 2001
+@@ -451,7 +451,8 @@
+ 		}
+ 
+ 	}
+-	DIS_tcp_setup(local_conn);
++	if (local_conn >= 0)
++	    DIS_tcp_setup(local_conn);
+ 	return (local_conn);
+ }
+ 
+diff -ruN pbs-2.3.12/src/resmom/start_exec.c pbs-2.3.12-old/src/resmom/start_exec.c
+--- pbs-2.3.12/src/resmom/start_exec.c	Mon Jan 15 16:50:22 2001
++++ pbs-2.3.12-old/src/resmom/start_exec.c	Tue Dec  4 14:14:16 2001
+@@ -1389,6 +1389,42 @@
+ }
+ 
+ /*
++ * Look for a certain environment variable which has a port# which should
++ * be opened on the MS to establish communication for one of the 3 stdio
++ * streams.  >=0 return is that valid fd, -1 means no env var found,
++ * -2 means malformed env value or failure to connect.
++ */
++static int
++search_env_and_open(const char *envname, u_long ipaddr)
++{
++    static char *id = "search_env_and_open";
++    int i, len = strlen(envname);
++
++    for (i=0; i<vtable.v_used; i++)
++	if (!strncmp(vtable.v_envp[i], envname, len)) {
++	    const char *cp = vtable.v_envp[i] + len;
++	    char *cq;
++	    int fd, port;
++	    if (*cp++ != '=') break;  /* empty, ignore it */
++	    port = strtol(cp, &cq, 10);
++	    if (*cq) {
++		log_err(errno, id, "improper value for MPIEXEC_STD*_PORT");
++		return -2;
++	    }
++#if 0       /* debugging */
++	    log_err(0, "search_env_and_open attempting open", vtable.v_envp[i]);
++#endif
++	    if ((fd = open_demux(ipaddr, port)) < 0) {
++		log_err(errno, id, "failed connect to mpiexec process on MS");
++		log_err(errno, id, vtable.v_envp[i]);
++		return -2;
++	    }
++	    return fd;
++	}
++    return -1;  /* not found */
++}
++
++/*
+ ** Start a process for a spawn request.  This will be different from
+ ** a job's initial shell task in that the environment will be specified
+ ** and no interactive code need be included.
+@@ -1407,7 +1443,7 @@
+ 	int	pipes[2], kid_read, kid_write, parent_read, parent_write;
+ 	int	pts;
+ 	int	i, j;
+-	int	fd;
++	int	fd0, fd1, fd2;
+ 	u_long	ipaddr;
+ 	struct	array_strings	*vstrs;
+ 	struct  startjob_rtn sjr;
+@@ -1631,51 +1667,80 @@
+ 	/*
+ 	** Set up stdin.
+ 	*/
+-	if ((fd = open("/dev/null", O_RDONLY)) == -1) {
++	/* look through env for a port# on MS we should use for stdin */
++	if ((fd0 = search_env_and_open("MPIEXEC_STDIN_PORT", ipaddr)) == -2)
++	    starter_return(kid_write, kid_read, JOB_EXEC_FAIL2, &sjr);
++	/* use /dev/null if no env var found */
++	if (fd0 < 0 && (fd0 = open("/dev/null", O_RDONLY)) == -1) {
+ 		log_err(errno, "newtask", "could not open devnull");
+ 		(void)close(0);
+ 	}
+ 	else {
+-		(void)dup2(fd, 0);
+-		if (fd > 0)
+-			(void)close(fd);
++		(void)dup2(fd0, 0);
++		if (fd0 > 0)
++			(void)close(fd0);
+ 	}
+ 
++	/* look through env for a port# on MS we should use for stdout/err */
++	if ((fd1 = search_env_and_open("MPIEXEC_STDOUT_PORT", ipaddr)) == -2)
++	    starter_return(kid_write, kid_read, JOB_EXEC_FAIL2, &sjr);
++	if ((fd2 = search_env_and_open("MPIEXEC_STDERR_PORT", ipaddr)) == -2)
++	    starter_return(kid_write, kid_read, JOB_EXEC_FAIL2, &sjr);
++
+ 	if (pjob->ji_numnodes > 1) {
+ 		/*
+ 		** Open sockets to demux proc for stdout and stderr.
+ 		*/
+-		if ((fd = open_demux(ipaddr, pjob->ji_stdout)) == -1)
++		if (fd1 < 0 && (fd1 = open_demux(ipaddr,pjob->ji_stdout)) == -1)
+ 		      starter_return(kid_write, kid_read, JOB_EXEC_FAIL2, &sjr);
+-		(void)dup2(fd, 1);
+-		if (fd > 1)
+-			(void)close(fd);
+-		if ((fd = open_demux(ipaddr, pjob->ji_stderr)) == -1)
++		(void)dup2(fd1, 1);
++		if (fd1 > 1)
++			(void)close(fd1);
++		if (fd2 < 0 && (fd2 = open_demux(ipaddr,pjob->ji_stderr)) == -1)
+ 		      starter_return(kid_write, kid_read, JOB_EXEC_FAIL2, &sjr);
+-		(void)dup2(fd, 2);
+-		if (fd > 2)
+-			(void)close(fd);
+-	
+-		(void)write(1,pjob->ji_wattr[(int)JOB_ATR_Cookie].at_val.at_str,
+-		     strlen(pjob->ji_wattr[(int)JOB_ATR_Cookie].at_val.at_str));
+-		(void)write(2,pjob->ji_wattr[(int)JOB_ATR_Cookie].at_val.at_str,
+-		     strlen(pjob->ji_wattr[(int)JOB_ATR_Cookie].at_val.at_str));
++		(void)dup2(fd2, 2);
++		if (fd2 > 2)
++			(void)close(fd2);
+ 	} else if ((pjob->ji_wattr[(int)JOB_ATR_interactive].at_flags&ATR_VFLAG_SET) &&
+ 
+             (pjob->ji_wattr[(int)JOB_ATR_interactive].at_val.at_long > 0)) {
+ 		/* interactive job, single node, write to pty */
+-		if ((pts = open_pty(pjob)) < 0) {
++		pts = -1;
++		if (fd1 < 0 || fd2 < 0) {
++		    if ((pts = open_pty(pjob)) < 0) {
+ 			log_err(errno, id,"cannot open slave");
+ 			starter_return(kid_write, kid_read,JOB_EXEC_FAIL1,&sjr);
++		    }
++		    if (fd1 < 0)
++			fd1 = pts;
++		    if (fd2 < 0)
++			fd2 = pts;
+ 		}
+-		(void)dup2(pts, 1);
+-                (void)dup2(pts, 2);
+-
++		(void)dup2(fd1, 1);
++		(void)dup2(fd2, 2);
++		if (fd1 != pts)
++		    (void) close(fd1);
++		if (fd2 != pts)
++		    (void) close(fd2);
+ 	} else {
+ 		/* normal batch job, single node, write straight to files */
+-		if (open_std_out_err(pjob) == -1) {
++		pts = -1;
++		if (fd1 < 0 || fd2 < 0) {
++		    if (open_std_out_err(pjob) == -1)
+ 			starter_return(kid_write, kid_read,JOB_EXEC_FAIL1,&sjr);
+ 		}
++		if (fd1 >= 0) {
++		    (void) close(1);
++		    (void) dup2(fd1, 1);
++		    if (fd1 > 1)
++			(void) close(fd1);
++		}
++		if (fd2 >= 0) {
++		    (void) close(2);
++		    (void) dup2(fd2, 2);
++		    if (fd2 > 2)
++			(void) close(fd2);
++		}
+ 	}
+ 
+ 	log_close(0);

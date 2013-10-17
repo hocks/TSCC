@@ -1,0 +1,432 @@
+.\"
+.\" mpiexec.1
+.\"
+.\" $Id: mpiexec.1 428 2010-08-02 15:30:46Z djohnson $
+.\"
+.\" Copyright (C) 2000-6 Pete Wyckoff <pw@osc.edu>
+.\"
+.\" Distributed under the GNU Public License Version 2 or later (See LICENSE)
+.\"
+.TH MPIEXEC 1 "21 Sep 2004" "OSC MPI utilities" "OSC"
+
+.SH NAME
+mpiexec \- MPI parallel job initializer
+
+.SH SYNOPSIS
+.LP
+.B mpiexec
+[\fIOPTION\fR]... \fIexecutable\fR [args]...
+.br
+.B mpiexec
+[\fIOPTION\fR]... -config \fIconfigfile\fR
+.br
+.B mpiexec -server
+
+.SH DESCRIPTION
+.LP
+.B Mpiexec
+is a replacement program for the script
+.B mpirun,
+which is part of the
+.B mpich
+package.  It is used to initialize a parallel job from within a
+.B pbs
+batch or interactive environment.  It further generates the environment
+variables and configuration files necessary to intialize a parallel program
+for the appropriate MPI message-passing library.
+
+Mpiexec uses the task manager library,
+.BR tm (3B),
+of
+.BR PBS (1B)
+to spawn copies of the
+executable on all the nodes in a pbs allocation.  It is almost functionally
+equivalent to
+.IP "" 0.6i
+rsh \fInode\fR "cd $cwd; exec \fIexecutable\fR \fIarguments\fR",
+.P
+using the current working directory from where mpiexec is invoked,
+and the shell specified in the environment, or from the password file.
+
+The standard input of the mpiexec
+process is forwarded to task number zero in the parallel job, allowing
+for use of the construct
+.IP "" 0.6i
+mpiexec mycode < inputfile
+.P
+This behavior can be modified using the \fI-nostdin\fR or
+\fI-allstdin\fR flags.
+Standard output and error are also forwarded to mpiexec, allowing redirection
+of the outputs of all processes.
+This can be turned off using \fI-nostdout\fR
+so that the standard output and error streams go through the normal PBS
+mechanisms, to the batch job output files, or to your terminal in the case of
+an interactive job.
+See
+.BR qsub (1)
+for more information.
+
+.SH OPTIONS
+All options may be introduced using either a single dash, or double
+dashes as are common in most
+.B gnu
+utilities.  Options may be shortened as long as they remain unambiguous.
+Options that require arguments may appear as separate words in the argument
+list, or they may be separated from the option by an equals sign.
+
+.TP 0.6i
+.BI \-n\ \fInumproc\fR,\ \fB\-np\ \fInumproc\fR
+Use only the specified number of processes.  Default is to use all
+which were provided in the pbs environment.
+.TP
+.B \-verbose
+Talk more about what mpiexec is doing.
+.TP
+.B \-nostdin
+Do not connect the standard input stream of process 0 to the mpiexec process.
+If the process attempts to read from stdin it will see an end-of-file.
+.TP
+.B \-allstdin
+Send the standard input stream of mpiexec to all processes.  Each character
+typed to mpiexec (or read from a file) is duplicated \fInumproc\fR times, and
+sent to each process.  This permits every process to read, for example,
+configuration information from the input stream.
+.TP
+.B \-nostdout
+Do not connect the standard output and error streams of each process back
+to the mpiexec process.  Output on these streams will go through the normal
+PBS mechanisms instead, to wit: files of the form \fIjob\fR.o\fIjobid\fR and
+\fIjob\fR.e\fIjobid\fR for batch jobs, and directly to the controlling
+terminal for interactive jobs.
+.TP
+.B \-comm\ \fItype\fR
+Specify the communication library used by your code.  Each MPI library
+has different mechanisms for starting all the processes of a parallel job,
+thus you must specify to mpiexec which library you use so that it can
+set up the environment of the processes correctly.  The argument \fItype\fR
+must be one of:  mpich-gm, mpich-mx, mpich-p4, mpich-ib, mpich-rai, mpich2-pmi, lam, shmem, emp, none; although
+the code may not have been compiled with support for some of those.  If this
+argument is not specified, mpiexec will look for the environment variable
+\fIMPIEXEC_COMM\fR which could specify one of those arguments.  If this fails,
+the compiled-in default communication library is chosen.
+.TP
+.B \-mpich-p4-shmem
+.TP
+.B \-mpich-p4-no-shmem
+The MPICH/P4 library may be configured either to support shared memory within
+a multiprocessor node or not.  It is necessary that mpiexec know in which way
+the library was configured to successfully start jobs.  While this is generally
+chosen at compile time using the \fI--disable-p4-shmem\fR configure flag, it is
+possible to choose explicitly at runtime with one of these flags.
+.TP
+.B \-pernode (SMP only)
+Allocate only one process per compute node.  For SMP nodes, only one
+processor will be allocated a job.  This flag is used to implement multiple
+level parallelism with MPI between nodes, and threads within a node, assmuming
+the code is set up to do that.
+.TP
+.B \-npernode\ \fInprocs\fR (SMP only)
+Allocate no more than \fInprocs\fR processes per compute node.  This is
+a generalization of the \fI-pernode\fR flag that can be used to place, for
+example, two tasks on each 4-way SMP.
+.TP
+.B \-nolocal (not MPICH/P4)
+Do not run any MPI processes on the local compute node.  In a batch job, one
+of the machines allocated to run a parallel job will run the batch script and
+thus invoke mpiexec.  Normally it participates in running the parallel
+appliacition, but this option disables that for special situations where that
+node is needed for other processing.
+.TP
+.B \-transform-hostname \fIsed_expression\fR
+Use an alternate hostname for message passing.  Processes will be
+spawned using a separate hostname for their message passing communications.
+This is necessary if you use, say, one ethernet card for PBS hostnames,
+and another ethernet card for message passing.  The transformation
+is provided by a general expression which will be parsed by \fIsed\fR at
+runtime by invoking: \fIsed -e sed_expression\fR.  The argument is not split
+at space boundaries, and can use any feature supported by sed including the
+use of hold spaces.  See below for an example.  Note that currently only
+MPICH/P4, MPICH2 and EMP change their behavior for different names.
+.TP
+.B \-transform-hostname-program \fIexecutable\fR
+Similar to the previous option, but instead of using \fIsed\fR, the list
+of hostnames will be passed on standard input to the external script or
+program you specify.  It is expected to generate, in order, the alternate
+names to be used for message passing.  This option is a generalization of
+the previous one and is expected to be used only by power users at sites
+with complex network setups.
+.TP
+.B \-gige
+This option is deprecated, but still accepted and synonymous to the preferred
+option \fI-transform-hostname=s/node/gige/\fR.
+.TP
+.B \-tv, \-totalview
+Debug using totalview.  The process on node zero attempts to open an
+X window to $DISPLAY, and all processes are attached by totalview threads.
+See
+.BR totalview (1)
+for more information.
+.TP
+.B \-kill
+If any one of the processes dies, wait a little, then kill all the
+other processes in the parallel job.  Your message passing library
+should handle this for you in most circumstances.
+.TP
+.BI \-config\ \fIconfigfile\fR
+Process executable and arguments are specified in the given configuration
+file.  This flag permits the use of heterogeneous jobs using multiple
+executables, architectures, and command line arguments.  No executable is
+given on the command line when using the \fI-config\fR flag.  If
+\fIconfigfile\fR is "-", then the configuration is read from standard
+input.  In this case the flag \fI-nostdin\fR is mandatory, as it is not
+possible to separate the contents of the configuration file from process input.
+.TP
+.B \-version
+Display the mpiexec version number and configure arguments.
+
+.SH MPI LIBRARY OPTIONS
+Different MPI libraries may support tuning options which can change their
+behavior or performance.  Mpiexec does not explicitly support these, but it
+does pass the environment variables used to set the options, for example,
+MPICH/GM has an option to set the maximum size for "eager" (as opposed to
+rendez-vous) messages.  In sh or bash, this can be set with:
+.IP "" 0.6i
+GMPI_EAGER=16384 mpiexec mycode
+.P
+or in csh or tcsh:
+.IP "" 0.6i
+setenv GMPI_EAGER=16384
+.br
+mpiexec mycode
+.P
+Other options can be found in the MPI documentation, such as GMPI_SHMEM,
+GMPI_RECV, P4_SOCKBUFSIZE and P4_GLOBMEMSIZE.
+.P
+Although not an MPI library implementation, the "none" communication device
+can be handy for running many copies of the same serial program.  Programs
+spawned with this device are provided an extra environment variable,
+\fIMPIEXEC_RANK\fR, which they can use to generate a unique identifier in
+the context of the pseudo-parallel job.
+
+.SH CONFIG FILE
+Each line of a configuration file contains a node specification and a command
+line, separated by a single colon (:).  A command line consists of an
+executable name and arguments to be passed to that executable, just like when
+running mpiexec without a config file.  A node specification can be either:
+.TP 0.6i
+.BI \-n\ \fInumproc\fR
+Run the executable on a certain number of processors.
+.TP
+.B \fInodespec\fR
+Run the executable on the named nodes specified by nodespec.
+.P
+A node specification is a space-separated list of hostnames.  Each element
+in the list is interpreted using case-insensitive standard shell wildcard
+patterns (see
+.BR glob (7)
+and
+.BR fnmatch (3)),
+to produce multiple hostnames, possibly.  It is not an error to specify
+nodes in the nodespec that are not actually part of the pbs allocation.
+This allows a single generic configuration file to be used in multiple
+situations.
+.TP 0.6i
+Config file example
+node03 node04 node1* : myexe -s 4
+.br
+-n 5 : otherexe -f 2 -large
+.IP "" 0.6i
+If processors are available on the nodes,
+run the code myexe on node03, node04, and any machine with a hostname
+matching node1*.  Pick up to five other nodes on which to run otherexe,
+depending on availability and any -n arguments.
+.P
+Note that each node listed in a node specification is chosen only once
+to run a given process.  If using multiprocessor nodes, and you do want
+to run two or more copies of the code on a given node, list that node
+twice in the line, or duplicate the config file entry.  Also note that
+node-anonymous specifications (e.g., -n 6) may choose other processors on a
+node that already has processes assigned; use the
+.B \-pernode
+flag on the command line if you want node-exclusive behavior.
+.P
+There is no way to run more than one process per processor using mpiexec.
+You must explicitly spawn threads in your code if you wish to do this.
+The presence of a -n argument on the command line limits the total number
+of processors available to the configuration file selection process, just
+as the flag -pernode limits the available nodes.
+.P
+It is not an error if some lines in the configuration file can not be
+satisfied with the available nodes.  If, however, a -n <numproc> argument
+requests more than can be satisfied, or if no tasks could be allocated,
+an error is reported.
+.P
+Finally, the order of lines in the configuration file is the same as
+the order of tasks in the MPI sense when the process is started.  Comments
+starting with '#' to the end of the line are ignored anywhere they appear in
+the configuration file.
+
+.SH CONCURRENT MPIEXEC
+.LP
+You can run invoke mpiexec multiple times in the same batch job, one
+after the other, sequentially.  But you can also run multiple mpiexecs
+in the same batch job concurrently.  In a 10-node PBS allocation, for
+example:
+.IP "" 0.6i
+mpiexec -n 5 a.out args1 < input1 > output1 &
+.br
+mpiexec -n 5 a.out args2 < input2 > output2 &
+.br
+wait
+.LP
+This runs two different instances of the parallel code, each on its own
+set of 5 nodes with its own input file and output file.
+.P
+The first invocation of mpiexec handles all interactions with PBS
+and thus waits for all subsequent ones to finish before it exits.
+Communication between the concurrent mpiexecs is mediated through a
+named pipe in /tmp that is created by the first mpiexec.
+.P
+Note that none of the command line arguments apply from one mpiexec to
+other concurrent ones.  For instance, -pernode applies as a constraint
+separately to each one.  The first "mpiexec -pernode" will not reserve
+its unused processors from use by subsequent concurrent ones.  To do
+something like this, a configuration file may be your best option.
+.P
+Finally, since only one mpiexec can be the master at a time, if your
+code setup requires that mpiexec exit to get a result, you can start
+a "dummy" mpiexec first in your batch job:
+.IP "" 0.6i
+mpiexec -server
+.LP
+It runs no tasks itself but handles the connections of other transient
+mpiexec clients.  It will shut down cleanly when the batch job exits or
+you may kill the server explicitly.  If the server is killed with SIGTERM
+(or HUP or INT), it will exit with a status of zero if there were no clients
+connected at the time.  If there were still clients using the server, the
+server will kill all their tasks, disconnect from the clients, and exit
+with status 1.
+
+If you are using mpich/p4, be aware that limitations in the mpich/p4 library
+restrict all task zeros to be on the same node as the mpiexec process itself,
+hence concurrency is severely limited.  You can use
+.B \-pernode
+to permit one concurrent job for each CPU in the node, though.
+
+.SH EXAMPLES
+.TP 0.6i
+mpiexec a.out
+Run the executable a.out as a parallel mpi code on each process allocated
+by pbs.
+.TP
+mpiexec -n 2 a.out -b 4
+Run the code with arguments \fI-b 4\fR
+on only two processors.
+.TP
+mpiexec -pernode -conf my.config
+Run only one process on each node, using the nodes and executables listed
+in the configuration file my.config.
+.TP
+mpiexec mycode >out 2>err
+Using a sh-compatible shell, send the standard output of all processes
+to the file \fIout\fR, and the stdandard error to \fIerr\fR.
+.TP
+mpiexec mycode >& output
+Using a csh-compatible shell, combine the standard output and error streams
+of all processes to the file \fIoutput\fR.
+.TP
+mpiexec mycode | sort > output
+Sort the output of the processes.  Standard error will appear as the standard
+error of the mpiexec process.
+.TP
+mpiexec -comm none -pernode mkdir /tmp/my-temp-dir
+Run the standard unix command \fImkdir\fR on each of the SMP nodes in
+your PBS node allocation for this job.
+.TP
+mpiexec -comm mpich-p4 mycode-p4
+Run a code compiled using MPICH/P4, even though your system administrator
+has chosen MPICH/GM as a default.
+.TP
+mpiexec --transform-hostname='s/su/10.1./; s/cn/./'
+For each hostname provided by PBS, translate it using the given sed
+command to generate the list of names passed to the MPI library.
+.P
+
+.SH ENVIRONMENT VARIABLES
+.LP
+Mpiexec uses
+.B PBS_JOBID
+as deposited in the environment by pbs to contact the pbs daemons.  When
+looking for the executable to run, the
+.B PATH
+environment variable is consulted, as well as searching in the current
+working directory, and jobs are started using
+.B SHELL
+on all the nodes.  For totalview debugging runs, the settings in
+.B DISPLAY
+and
+.B LM_LICENSE_FILE
+may be important.
+
+To specify a default communication library, the variable
+.B MPIEXEC_COMM
+may be set to one of the accepted values for \fI-comm\fR as documented above.
+The command-line argument takes precedence over the environment variable, and
+if neither is set, the compiled-in default is used.
+
+Note that mpiexec does pass all variables in the environment which it was
+given, but PBS will not copy your entire environment for batch jobs at job
+submission time unless you use invoke qsub using the \fI-V\fR argument.
+
+.SH DIAGNOSTICS
+.TP 0.6i
+mpiexec: Warning: tasks <tasknum>,... exited with status <exitval>.
+One or more of the tasks in the parallel process exited with a non-zero exit
+status.  This is the value a program returns to its environment when it
+finishes, either with "return exitval" or "exit(exitval)", or in FORTRAN, "STOP
+exitval".  Tradition holds that a program which terminates correctly should
+return zero, and hence mpiexec warns if it sees otherwise.  Due to race
+conditions inherent in the TM interface, sometimes mpiexec will report an exit
+value of zero even though it was actually otherwise.
+.TP 0.6i
+mpiexec: Warning: task <tasknum> died with signal <signum>
+One of the tasks in the parallel process exited due to receipt of an uncaught
+signal.  The symbolic names of signal numbers can be listed with "kill -l".
+Common ones are SIGSEGV (11) and SIGBUS (7), both of which generally indicate
+a program error.  Others, SIGINT (2), SIGKILL (9), and SIGTERM (15), may occur
+when the task is killed or interrupted externally.
+
+.SH ERRORS
+.TP 0.6i
+tm: not connected
+A fatal error occurred in communications between the mpiexec process and the
+local pbs_mom.  This might occur due to bugs in pbs_mom, and is not
+recoverable.
+.TP 0.6i
+mpiexec: Error: PBS_JOBID not set in environment.  Code must be run from a PBS script, perhaps interactively using "qsub -I".
+It is not possible to run mpiexec unless you are within a PBS environment,
+either created in a batch or interactive PBS job.  See tha man page for
+qsub on how to submit a job.
+
+.SH EXIT VALUE
+.LP
+Mpiexec returns to its environment the exit status of process number zero in
+a parallel task.  With this, scripts which use mpiexec can access the return
+value of the parallel program.  If task zero exited with a signal, as opposed
+to naturally with STOP or exit(), mpiexec returns 256 + signum, where signum
+is the signal that killed task zero.  This is a convention inherited from PBS.
+
+.SH AUTHOR
+.LP
+Pete Wyckoff <pw@osc.edu>
+
+.SH SEE ALSO
+.LP
+.BR mpirun(1),
+.BR pbs (1B),
+.BR tm (3B),
+.BR qsub (1B),
+.BR totalview (1),
+.BR kill (1)
+.br
+

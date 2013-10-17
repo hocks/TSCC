@@ -1,0 +1,39 @@
+diff -ruN mpich-1.2.3-alpha-020118-stock/mpid/ch_p4/p4/lib/p4_bm.c mpich-1.2.3-alpha-020118/mpid/ch_p4/p4/lib/p4_bm.c
+--- mpich-1.2.3-alpha-020118-stock/mpid/ch_p4/p4/lib/p4_bm.c	Thu Jan 17 09:27:23 2002
++++ mpich-1.2.3-alpha-020118/mpid/ch_p4/p4/lib/p4_bm.c	Mon Jan 21 12:19:55 2002
+@@ -380,7 +380,7 @@
+ #           ifdef CAN_DO_SOCKET_MSGS
+ 	    if (!(p4_global->local_communication_only))
+ 	    {
+-#ifdef USE_NONBLOCKING_LISTENER_SOCKETS
++#ifndef USE_BLOCKING_LISTENER_SOCKETS
+ 		/* Set the listener socket to be nonblocking.  Why? */
+ 		int cc = fcntl(end_1, F_SETFL, O_NONBLOCK);
+ 		if (cc < 0) {
+diff -ruN mpich-1.2.3-alpha-020118-stock/mpid/ch_p4/p4/lib/p4_rm.c mpich-1.2.3-alpha-020118/mpid/ch_p4/p4/lib/p4_rm.c
+--- mpich-1.2.3-alpha-020118-stock/mpid/ch_p4/p4/lib/p4_rm.c	Thu Jan 17 09:27:24 2002
++++ mpich-1.2.3-alpha-020118/mpid/ch_p4/p4/lib/p4_rm.c	Mon Jan 21 12:20:56 2002
+@@ -363,9 +363,9 @@
+ 
+ #   if !defined(NO_LISTENER)
+ 	    {
+-#ifdef USE_NONBLOCKING_LISTENER_SOCKETS
++#ifndef USE_BLOCKING_LISTENER_SOCKETS
+ 	    int cc;
+-		cc = fcntl(end1, F_SETFL, O_NONBLOCK);
++		cc = fcntl(end_1, F_SETFL, O_NONBLOCK);
+ 		if (cc < 0) {
+ 		    p4_error("create_rm_processes: set listener nonblocking",
+ 		      cc);
+diff -ruN mpich-1.2.3-alpha-020118-stock/mpid/ch_p4/p4/lib/p4_sock_conn.c mpich-1.2.3-alpha-020118/mpid/ch_p4/p4/lib/p4_sock_conn.c
+--- mpich-1.2.3-alpha-020118-stock/mpid/ch_p4/p4/lib/p4_sock_conn.c	Thu Jan 17 09:27:25 2002
++++ mpich-1.2.3-alpha-020118/mpid/ch_p4/p4/lib/p4_sock_conn.c	Mon Jan 21 12:20:29 2002
+@@ -331,7 +331,7 @@
+     p4_dprintfl(70, "Inside handle_connection_interrupt fd=%d\n",p4_local->listener_fd);
+     listener_fd = p4_local->listener_fd;
+ 
+-#ifdef USE_NONBLOCKING_LISTENER_SOCKETS
++#ifndef USE_BLOCKING_LISTENER_SOCKETS
+     /*
+      * Must read non-blocking due to race conditions with using
+      * signals as IPC mechanism.  See the fcntl near get_pipe where

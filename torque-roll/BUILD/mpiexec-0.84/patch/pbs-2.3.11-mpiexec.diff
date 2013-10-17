@@ -1,0 +1,204 @@
+diff -ruN pbs-2.3.11-stock/README.mpiexec pbs-2.3.11/README.mpiexec
+--- pbs-2.3.11-stock/README.mpiexec	Wed Dec 31 19:00:00 1969
++++ pbs-2.3.11/README.mpiexec	Thu Jan 25 10:58:53 2001
+@@ -0,0 +1,20 @@
++
++Documentation of changes applied as part of the mpiexec patch.
++http://www.osc.edu/~pw/mpiexec.html
++
++
++1. General bug fixes:
++
++src/lib/Libifl/rpp.c
++Incrcease rpp retry count for possibly congested networks.
++
++src/lib/Libifl/tm.c
++Do not call DIS_tcp_setup(-1) if connection to the local mom failed
++after 5 tries.
++
++2. Functionality additions:
++
++src/resmom/start_exec.c
++Added extension to get stdin/out/err files from the environment rather than
++always using /dev/null during tm_spawn.
++
+diff -ruN pbs-2.3.11-stock/src/lib/Libifl/rpp.c pbs-2.3.11/src/lib/Libifl/rpp.c
+--- pbs-2.3.11-stock/src/lib/Libifl/rpp.c	Fri Sep 29 17:29:46 2000
++++ pbs-2.3.11/src/lib/Libifl/rpp.c	Thu Dec 28 18:35:02 2000
+@@ -186,7 +186,7 @@
+ /*
+ **	Default number of sendto attempts on a *packet.
+ */
+-#define	RPP_RETRY	10
++#define	RPP_RETRY	30
+ /*
+ **	Max allowed number of outstanding pkts
+ */
+diff -ruN pbs-2.3.11-stock/src/lib/Libifl/tm.c pbs-2.3.11/src/lib/Libifl/tm.c
+--- pbs-2.3.11-stock/src/lib/Libifl/tm.c	Thu Jan 25 10:10:54 2001
++++ pbs-2.3.11/src/lib/Libifl/tm.c	Thu Jan 25 10:54:47 2001
+@@ -451,7 +451,8 @@
+ 		}
+ 
+ 	}
+-	DIS_tcp_setup(local_conn);
++	if (local_conn >= 0)
++	    DIS_tcp_setup(local_conn);
+ 	return (local_conn);
+ }
+ 
+diff -ruN pbs-2.3.11-stock/src/resmom/start_exec.c pbs-2.3.11/src/resmom/start_exec.c
+--- pbs-2.3.11-stock/src/resmom/start_exec.c	Thu Jan 25 10:10:55 2001
++++ pbs-2.3.11/src/resmom/start_exec.c	Thu Jan 25 10:01:54 2001
+@@ -1389,6 +1389,42 @@
+ }
+ 
+ /*
++ * Look for a certain environment variable which has a port# which should
++ * be opened on the MS to establish communication for one of the 3 stdio
++ * streams.  >=0 return is that valid fd, -1 means no env var found,
++ * -2 means malformed env value or failure to connect.
++ */
++static int
++search_env_and_open(const char *envname, u_long ipaddr)
++{
++    static char *id = "search_env_and_open";
++    int i, len = strlen(envname);
++
++    for (i=0; i<vtable.v_used; i++)
++	if (!strncmp(vtable.v_envp[i], envname, len)) {
++	    const char *cp = vtable.v_envp[i] + len;
++	    char *cq;
++	    int fd, port;
++	    if (*cp++ != '=') break;  /* empty, ignore it */
++	    port = strtol(cp, &cq, 10);
++	    if (*cq) {
++		log_err(errno, id, "improper value for MPIEXEC_STD*_PORT");
++		return -2;
++	    }
++#if 0       /* debugging */
++	    log_err(0, "search_env_and_open attempting open", vtable.v_envp[i]);
++#endif
++	    if ((fd = open_demux(ipaddr, port)) < 0) {
++		log_err(errno, id, "failed connect to mpiexec process on MS");
++		log_err(errno, id, vtable.v_envp[i]);
++		return -2;
++	    }
++	    return fd;
++	}
++    return -1;  /* not found */
++}
++
++/*
+ ** Start a process for a spawn request.  This will be different from
+ ** a job's initial shell task in that the environment will be specified
+ ** and no interactive code need be included.
+@@ -1407,7 +1443,7 @@
+ 	int	pipes[2], kid_read, kid_write, parent_read, parent_write;
+ 	int	pts;
+ 	int	i, j;
+-	int	fd;
++	int	fd0, fd1, fd2;
+ 	u_long	ipaddr;
+ 	struct	array_strings	*vstrs;
+ 	struct  startjob_rtn sjr;
+@@ -1631,30 +1667,40 @@
+ 	/*
+ 	** Set up stdin.
+ 	*/
+-	if ((fd = open("/dev/null", O_RDONLY)) == -1) {
++	/* look through env for a port# on MS we should use for stdin */
++	if ((fd0 = search_env_and_open("MPIEXEC_STDIN_PORT", ipaddr)) == -2)
++	    starter_return(kid_write, kid_read, JOB_EXEC_FAIL2, &sjr);
++	/* use /dev/null if no env var found */
++	if (fd0 < 0 && (fd0 = open("/dev/null", O_RDONLY)) == -1) {
+ 		log_err(errno, "newtask", "could not open devnull");
+ 		(void)close(0);
+ 	}
+ 	else {
+-		(void)dup2(fd, 0);
+-		if (fd > 0)
+-			(void)close(fd);
++		(void)dup2(fd0, 0);
++		if (fd0 > 0)
++			(void)close(fd0);
+ 	}
+ 
++	/* look through env for a port# on MS we should use for stdout/err */
++	if ((fd1 = search_env_and_open("MPIEXEC_STDOUT_PORT", ipaddr)) == -2)
++	    starter_return(kid_write, kid_read, JOB_EXEC_FAIL2, &sjr);
++	if ((fd2 = search_env_and_open("MPIEXEC_STDERR_PORT", ipaddr)) == -2)
++	    starter_return(kid_write, kid_read, JOB_EXEC_FAIL2, &sjr);
++
+ 	if (pjob->ji_numnodes > 1) {
+ 		/*
+ 		** Open sockets to demux proc for stdout and stderr.
+ 		*/
+-		if ((fd = open_demux(ipaddr, pjob->ji_stdout)) == -1)
++		if (fd1 < 0 && (fd1 = open_demux(ipaddr,pjob->ji_stdout)) == -1)
+ 		      starter_return(kid_write, kid_read, JOB_EXEC_FAIL2, &sjr);
+-		(void)dup2(fd, 1);
+-		if (fd > 1)
+-			(void)close(fd);
+-		if ((fd = open_demux(ipaddr, pjob->ji_stderr)) == -1)
++		(void)dup2(fd1, 1);
++		if (fd1 > 1)
++			(void)close(fd1);
++		if (fd2 < 0 && (fd2 = open_demux(ipaddr,pjob->ji_stderr)) == -1)
+ 		      starter_return(kid_write, kid_read, JOB_EXEC_FAIL2, &sjr);
+-		(void)dup2(fd, 2);
+-		if (fd > 2)
+-			(void)close(fd);
++		(void)dup2(fd2, 2);
++		if (fd2 > 2)
++			(void)close(fd2);
+ 	
+ 		(void)write(1,pjob->ji_wattr[(int)JOB_ATR_Cookie].at_val.at_str,
+ 		     strlen(pjob->ji_wattr[(int)JOB_ATR_Cookie].at_val.at_str));
+@@ -1664,17 +1710,41 @@
+ 
+             (pjob->ji_wattr[(int)JOB_ATR_interactive].at_val.at_long > 0)) {
+ 		/* interactive job, single node, write to pty */
+-		if ((pts = open_pty(pjob)) < 0) {
++		pts = -1;
++		if (fd1 < 0 || fd2 < 0) {
++		    if ((pts = open_pty(pjob)) < 0) {
+ 			log_err(errno, id,"cannot open slave");
+ 			starter_return(kid_write, kid_read,JOB_EXEC_FAIL1,&sjr);
++		    }
++		    if (fd1 < 0)
++			fd1 = pts;
++		    if (fd2 < 0)
++			fd2 = pts;
+ 		}
+-		(void)dup2(pts, 1);
+-                (void)dup2(pts, 2);
+-
++		(void)dup2(fd1, 1);
++		(void)dup2(fd2, 2);
++		if (fd1 != pts)
++		    (void) close(fd1);
++		if (fd2 != pts)
++		    (void) close(fd2);
+ 	} else {
+ 		/* normal batch job, single node, write straight to files */
+-		if (open_std_out_err(pjob) == -1) {
++		pts = -1;
++		if (fd1 < 0 || fd2 < 0) {
++		    if (open_std_out_err(pjob) == -1)
+ 			starter_return(kid_write, kid_read,JOB_EXEC_FAIL1,&sjr);
++		}
++		if (fd1 >= 0) {
++		    (void) close(1);
++		    (void) dup2(fd1, 1);
++		    if (fd1 > 1)
++			(void) close(fd1);
++		}
++		if (fd2 >= 0) {
++		    (void) close(2);
++		    (void) dup2(fd2, 2);
++		    if (fd2 > 2)
++			(void) close(fd2);
+ 		}
+ 	}
+ 

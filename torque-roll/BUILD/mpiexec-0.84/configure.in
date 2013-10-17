@@ -1,0 +1,478 @@
+#
+# configure.in - autoconf input
+#
+# Copyright (C) 2000-8 Pete Wyckoff <pw@osc.edu>
+#
+# $Id: configure.in 429 2010-08-02 18:33:28Z djohnson $
+#
+AC_INIT(mpiexec.c)
+AC_CONFIG_HEADER(config.h)
+version="0.84"
+
+# programs
+AC_PROG_CC
+# would require install-sh to be distributed
+# AC_PROG_INSTALL
+# Intel C compiler lies, it's not really gcc and takes different args
+ICC=no
+AC_MSG_CHECKING([whether we are using the Intel C compiler])
+AC_COMPILE_IFELSE(AC_LANG_PROGRAM(,[return __INTEL_COMPILER]), ICC=yes, ICC=no)
+AC_MSG_RESULT($ICC)
+if test "$ICC" = yes ; then GCC=no ; fi
+
+# libraries
+pbsdir_default=/usr/local/pbs
+AC_ARG_WITH([pbs],
+[  --with-pbs=PATH         specify location of pbs install],
+    pbsdir=$withval, pbsdir=$pbsdir_default)
+AC_SUBST(pbsdir)
+
+# first make sure we can compile a straight sockets code
+AC_SEARCH_LIBS(socket, socket)
+AC_SEARCH_LIBS(gethostbyname, nsl)
+
+# Verify the PBS libs are there, but let Makefile handle including them
+# on the link line.  First check for modern torque pbs-config program using
+# $pbsdir and the rest of PATH, then fall back to looking around for the
+# libraries by hand.
+AC_PATH_PROG(PBSCONFIG, pbs-config, none, $pbsdir:$pbsdir/bin:$pbsdir/../bin:$PATH)
+if test "$PBSCONFIG" != "none"; then
+    PBSLIBS="`$PBSCONFIG --libs`"
+    PBSINCL="`$PBSCONFIG --cflags`"
+else
+    saveldflags="$LDFLAGS"
+    savelibs="$LIBS"
+    LDFLAGS="$LDFLAGS -L$pbsdir/lib"
+    AC_CHECK_LIB(pbs, tm_init,,
+      AC_MSG_ERROR([libpbs.a not found in $pbsdir/lib]))
+    AC_CHECK_LIB(log, pbse_to_txt,,
+      AC_MSG_ERROR([liblog.a not found in $pbsdir/lib]))
+    LDFLAGS="$saveldflags"
+    LIBS="$savelibs"
+
+    PBSLIBS="-L$pbsdir/lib -lpbs -llog"
+    PBSINCL=
+    if test "$pbsdir" != "/usr" ; then
+	PBSINCL="-I$pbsdir/include"
+    fi
+
+    # need the source tree for very old pbs versions, no default here
+    pbssrc_default=
+    AC_ARG_WITH([pbssrc],
+    [    --with-pbssrc=PATH    (very old PBS only) location of pbs source tree],
+	pbssrc=$withval, pbssrc=$pbssrc_default)
+
+    # Look for tm.h in the install directory.  If it's there, we can ignore
+    # pbssrc entirely.  Else make sure tm.h is in the source directory.
+    if test ! -f $pbsdir/include/tm.h ; then
+	if test -z "$pbssrc" ; then
+	    AC_MSG_ERROR([must set --with-pbssrc to your source tree])
+	fi
+	if test ! -f $pbssrc/src/include/tm.h ; then
+	    AC_MSG_ERROR([tm.h not found in $pbssrc/src/include])
+	fi
+        PBSINCL="$PBSINCL -I$pbssrc/src/include"
+    fi
+fi
+AC_SUBST(PBSLIBS)
+AC_SUBST(PBSINCL)
+
+# build PBSPro stdio helper workaround program?
+AC_ARG_ENABLE([pbspro-helper],
+[  --enable-pbspro-helper  build mpiexec-redir-helper program, for PBSPro only],
+    if test "$enableval" = no ; then pbspro_helper=0 ; else pbspro_helper=1 ; fi
+    , pbspro_helper=0)
+AC_SUBST(pbspro_helper)
+AC_DEFINE_UNQUOTED(HAVE_PBSPRO_HELPER, $pbspro_helper)
+
+#
+# MPICH/GM device-specific options
+#
+AC_ARG_ENABLE([mpich-gm],
+[  --disable-mpich-gm      disable support of MPICH/GM and MX using Myrinet],
+    if test "$enableval" = no ; then with_mpich_gm=0 ; else with_mpich_gm=1 ; fi
+    , with_mpich_gm=1)
+AC_DEFINE_UNQUOTED(HAVE_COMM_MPICH_GM, $with_mpich_gm)
+
+#
+# MPICH/P4 device-specific options
+#
+AC_ARG_ENABLE([mpich-p4],
+[  --disable-mpich-p4      disable support of MPICH/P4 using sockets/ethernet],
+    if test "$enableval" = no ; then with_mpich_p4=0 ; else with_mpich_p4=1 ; fi
+    , with_mpich_p4=1)
+AC_DEFINE_UNQUOTED(HAVE_COMM_MPICH_P4, $with_mpich_p4)
+AC_ARG_ENABLE([p4-shmem],
+[    --disable-p4-shmem      declare that MPICH/P4 does not use shared memory],
+    if test "$enableval" = no ; then with_p4_shmem=0 ; else with_p4_shmem=1 ; fi
+    , with_p4_shmem=1)
+AC_DEFINE_UNQUOTED(HAVE_P4_SHMEM, $with_p4_shmem)
+
+#
+# MPICH/IB device-specific options
+#
+AC_ARG_ENABLE([mpich-ib],
+[  --disable-mpich-ib      disable support of MPICH/IB using InfiniBand],
+    if test "$enableval" = no ; then with_mpich_ib=0 ; else with_mpich_ib=1 ; fi
+    , with_mpich_ib=1)
+AC_DEFINE_UNQUOTED(HAVE_COMM_MPICH_IB, $with_mpich_ib)
+
+#
+# MPICH/PSM device-specific options
+#
+AC_ARG_ENABLE([mpich-psm],
+[  --disable-mpich-psm     disable support of MPICH/PSM using QLogic InfiniPath],
+    if test "$enableval" = no ; then with_mpich_psm=0 ; else with_mpich_psm=1 ; fi
+    , with_mpich_psm=1)
+AC_DEFINE_UNQUOTED(HAVE_COMM_MPICH_PSM, $with_mpich_psm)
+
+#
+# MPICH/RAI device-specific options
+#
+AC_ARG_ENABLE([mpich-rai],
+[  --disable-mpich-rai     disable support of MPICH/RAI using Cray RAI],
+    if test "$enableval" = no ; then with_mpich_rai=0 ; else with_mpich_rai=1 ; fi
+    , with_mpich_rai=1)
+AC_DEFINE_UNQUOTED(HAVE_COMM_MPICH_RAI, $with_mpich_rai)
+
+#
+# MPICH2/PMI device-specific options
+#
+AC_ARG_ENABLE([mpich2-pmi],
+[  --disable-mpich2-pmi    disable support of MPICH2/PMI],
+    if test "$enableval" = no ; then with_mpich2_pmi=0 ;
+    else with_mpich2_pmi=1 ; fi
+    , with_mpich2_pmi=1)
+AC_DEFINE_UNQUOTED(HAVE_COMM_MPICH2_PMI, $with_mpich2_pmi)
+
+#
+# LAM device-specific options
+#
+AC_ARG_ENABLE([lam],
+[  --disable-lam           disable support of LAM using sockets/ethernet],
+    if test "$enableval" = no ; then with_lam=0 ; else with_lam=1 ; fi
+    , with_lam=1)
+AC_DEFINE_UNQUOTED(HAVE_COMM_LAM, $with_lam)
+
+#
+# SHMEM device-specific options
+#
+AC_ARG_ENABLE([shmem],
+[  --disable-shmem         disable support of pure SHMEM (no effect on p4 shmem)],
+    if test "$enableval" = no ; then with_shmem=0 ; else with_shmem=1 ; fi
+    , with_shmem=1)
+AC_DEFINE_UNQUOTED(HAVE_COMM_SHMEM, $with_shmem)
+
+#
+# EMP device-specific options
+#
+AC_ARG_ENABLE([emp],
+[  --disable-emp           disable support of EMP using gigabit ethernet],
+    if test "$enableval" = no ; then with_emp=0 ; else with_emp=1 ; fi
+    , with_emp=1)
+AC_DEFINE_UNQUOTED(HAVE_COMM_EMP, $with_emp)
+
+#
+# Portals device-specific options
+#
+AC_ARG_ENABLE([portals],
+[  --disable-portals       disable support of EMP using gigabit ethernet],
+    if test "$enableval" = no ; then with_portals=0 ; else with_portals=1 ; fi
+    , with_portals=1)
+AC_DEFINE_UNQUOTED(HAVE_COMM_PORTALS, $with_portals)
+
+#
+# NONE device-specific options
+#
+AC_ARG_ENABLE([none],
+[  --disable-none          disable support of "none" communication library],
+    if test "$enableval" = no ; then with_none=0 ; else with_none=1 ; fi
+    , with_none=1)
+AC_DEFINE_UNQUOTED(HAVE_COMM_NONE, $with_none)
+
+#
+# List of comms that have not been disabled, for error messages.
+#
+avail=
+if test $with_mpich_gm = 1 ; then
+    avail="$avail mpich-gm"
+fi
+if test $with_mpich_p4 = 1 ; then
+    avail="$avail mpich-p4"
+fi
+if test $with_mpich_ib = 1 ; then
+    avail="$avail mpich-ib"
+fi
+if test $with_mpich_psm = 1 ; then
+    avail="$avail mpich-psm"
+fi
+if test $with_mpich_rai = 1 ; then
+    avail="$avail mpich-rai"
+fi
+if test $with_mpich2_pmi = 1 ; then
+    avail="$avail mpich2-pmi"
+fi
+if test $with_lam = 1 ; then
+    avail="$avail lam"
+fi
+if test $with_shmem = 1 ; then
+    avail="$avail shmem"
+fi
+if test $with_emp = 1 ; then
+    avail="$avail emp"
+fi
+if test $with_portals = 1 ; then
+    avail="$avail portals"
+fi
+if test $with_none = 1 ; then
+    avail="$avail none"
+fi
+
+#
+# Choose a default communication layer.  Error if none chosen.
+#
+AC_ARG_WITH([default-comm],
+[  --with-default-comm=COMM  use COMM as default MPI communication library]
+[                            (Pick one: there is no default.)],
+    if test -z "$withval" -o "$withval" = yes ; then
+	AC_MSG_ERROR([Option --with-default-comm requires an argument.])
+    elif test $withval = mpich-gm -o $withval = mpich/gm -o $withval = gm \
+           -o $withval = mpich-mx -o $withval = mpich/mx -o $withval = mx ; then
+	if test $with_mpich_gm = 0 ; then
+	    AC_MSG_ERROR([Default comm $withval must not be disabled.])
+	else
+	    mpi_path=/usr/local/mpich
+	    default_comm=COMM_MPICH_GM
+	fi
+    elif test $withval = mpich-p4 -o $withval = mpich/p4 -o $withval = p4 ; then
+	if test $with_mpich_p4 = 0 ; then
+	    AC_MSG_ERROR([Default comm $withval must not be disabled.])
+	else
+	    mpi_path=/usr/local/mpich-p4
+	    default_comm=COMM_MPICH_P4
+	fi
+    elif test $withval = mpich-ib -o $withval = mpich/ib -o $withval = ib ; then
+	if test $with_mpich_ib = 0 ; then
+	    AC_MSG_ERROR([Default comm $withval must not be disabled.])
+	else
+	    mpi_path=/usr/local/mpich-ib
+	    default_comm=COMM_MPICH_IB
+	fi
+    elif test $withval = mpich-psm -o $withval = mpich/psm -o $withval = psm; then
+	if test $with_mpich_psm = 0 ; then
+	    AC_MSG_ERROR([Default comm $withval must not be disabled.])
+	else
+	    mpi_path=/usr/local/mpich
+	    default_comm=COMM_MPICH_PSM
+	fi
+    elif test $withval = mpich-rai -o $withval = mpich/rai -o $withval = rai ; then
+	if test $with_mpich_rai = 0 ; then
+	    AC_MSG_ERROR([Default comm $withval must not be disabled.])
+	else
+	    mpi_path=/usr/local/mpich-rai
+	    default_comm=COMM_MPICH_RAI
+	fi
+    elif test $withval = mpich2-pmi -o $withval = mpich2/pmi -o $withval = pmi -o $withval = mpich2 ; then
+	if test $with_mpich2_pmi = 0 ; then
+	    AC_MSG_ERROR([Default comm $withval must not be disabled.])
+	else
+	    mpi_path=/usr/local/mpich2
+	    default_comm=COMM_MPICH2_PMI
+	fi
+    elif test $withval = lam ; then
+	if test $with_lam = 0 ; then
+	    AC_MSG_ERROR([Default comm $withval must not be disabled.])
+	else
+	    mpi_path=/usr/local/lam
+	    default_comm=COMM_LAM
+	fi
+    elif test $withval = shmem ; then
+	if test $with_shmem = 0 ; then
+	    AC_MSG_ERROR([Default comm $withval must not be disabled.])
+	else
+	    mpi_path=/usr/local/mpich
+	    default_comm=COMM_SHMEM
+	fi
+    elif test $withval = emp ; then
+	if test $with_emp = 0 ; then
+	    AC_MSG_ERROR([Default comm $withval must not be disabled.])
+	else
+	    mpi_path=/usr/local/emp
+	    default_comm=COMM_EMP
+	fi
+    elif test $withval = portals ; then
+	if test $with_portals = 0 ; then
+	    AC_MSG_ERROR([Default comm $withval must not be disabled.])
+	else
+	    mpi_path=/usr/local/portals
+	    default_comm=COMM_PORTALS
+	fi
+    elif test $withval = none ; then
+	if test $with_none = 0 ; then
+	    AC_MSG_ERROR([Default comm $withval must not be disabled.])
+	else
+	    mpi_path=
+	    default_comm=COMM_NONE
+	fi
+    else
+	AC_MSG_ERROR([Unknown comm $withval; choose from:$avail.])
+    fi
+    ,
+    AC_MSG_ERROR([You must choose a value for --with-default-comm; choose from:$avail.])
+    )
+AC_DEFINE_UNQUOTED(COMM_DEFAULT, $default_comm)
+
+#
+# Path to mpicc and mpifc script for compilation of test program.
+#
+AC_ARG_WITH([mpicc],
+[  --with-mpicc=PATH       MPI C compiler, optional for testing (default mpicc)],
+    mpicc=$withval, mpicc=mpicc)
+AC_SUBST(mpicc)
+AC_ARG_WITH([mpif77],
+[  --with-mpif77=PATH      MPI F77 compiler, optional (default mpif77)],
+    mpif77=$withval, mpif77=mpif77)
+AC_SUBST(mpif77)
+
+#
+# Path to sed for --transform-hostname
+#
+AC_ARG_WITH([sed],
+[  --with-sed=PATH         sed-like program, for --transform-hostname (def. sed)],
+    sed=$withval, sed=sed)
+# If user gives a full path, just accept it, else search it path.  The
+# backslash is necessary for suns at least.
+if expr $sed : \\/ >/dev/null ; then
+    SED_PATH=$sed
+else
+    AC_PATH_PROG(SED_PATH, $sed)
+fi
+AC_DEFINE_UNQUOTED(SED_PATH, "$SED_PATH")
+if test -n "$SED_PATH" ; then have_sed=1 ; else have_sed=0 ; fi
+AC_DEFINE_UNQUOTED(HAVE_SED, $have_sed)
+
+#
+# Disable poll if you overhead seems large, or if it is broken.
+#
+AC_ARG_ENABLE([poll],
+[  --disable-poll          disable use of "poll" syscall, use "select" instead],
+    if test "$enableval" = no ; then use_poll=0 ; else use_poll=1 ; fi
+    , use_poll=1)
+
+#
+# Use Infiniband tree-based "fast_dist" mechanism for executable distribution
+# before job startup.
+#
+AC_ARG_WITH([fast-dist],
+[  --with-fast-dist=PATH   use fast_dist to distribute executables to nodes]
+[                          (see http://www.osc.edu/~dennis/fastdist/)],
+    fast_dist=$withval, fast_dist=)
+if test -n "$fast_dist" ; then
+    if expr $fast_dist : \\/ >/dev/null ; then
+	FAST_DIST_PATH=$fast_dist
+    elif expr $fast_dist : \\.\\/ >/dev/null ; then
+	# allow for ./fast_dist for debugging
+	FAST_DIST_PATH=$fast_dist
+    else
+	AC_PATH_PROG(FAST_DIST_PATH, $fast_dist)
+    fi
+fi
+AC_DEFINE_UNQUOTED(FAST_DIST_PATH, "$FAST_DIST_PATH")
+if test -n "$FAST_DIST_PATH" ; then have_fast_dist=1 ; else have_fast_dist=0 ;fi
+AC_DEFINE_UNQUOTED(HAVE_FAST_DIST, $have_fast_dist)
+
+#
+# header files
+# Use autoscan to rebuild this list periodically.
+# Not all headers, just ones that might cause compatibility problems.
+#
+AC_HEADER_STDC
+AC_HEADER_SYS_WAIT
+AC_CHECK_HEADERS(paths.h)
+
+# typedefs, structures, compiler characteristics
+AC_C_CONST
+AC_C_INLINE
+
+# where is __environ?
+AC_MSG_CHECKING([for environ])
+AC_TRY_COMPILE([#include <unistd.h>],
+  [char **cp = __environ], has=yes, has=no)
+if test $has = yes ; then
+    AC_DEFINE(HAVE___ENVIRON)
+    AC_MSG_RESULT([__environ])
+else
+    AC_TRY_COMPILE([extern char **environ;],
+      [char **cp = environ], has=yes, has=no)
+    if test $has = yes ; then
+	AC_DEFINE(HAVE_ENVIRON)
+	AC_MSG_RESULT([environ])
+    else
+	AC_MSG_RESULT()
+	AC_MSG_ERROR([No known variable "environ" found.])
+    fi
+fi
+
+# have socklen_t type?
+AC_MSG_CHECKING([for socklen_t])
+AC_TRY_COMPILE(
+    [#include <sys/types.h>
+     #include <sys/socket.h>],
+    [socklen_t t = 0], has=yes, has=no)
+AC_MSG_RESULT($has)
+if test $has = yes ; then
+    AC_DEFINE(HAVE_SOCKLEN_T)
+fi
+
+if test -z "$CFLAGS" ; then
+    CFLAGS="-O2"
+fi
+# enable extra warnings for gcc
+if test "$GCC" = yes ; then
+    # change -W to -Wextra someday, but only works on gcc >= 3.3
+    CFLAGS="$CFLAGS -Wall -W -Wpointer-arith -Wwrite-strings"
+    CFLAGS="$CFLAGS -Wcast-align -Wcast-qual -Wbad-function-cast"
+    CFLAGS="$CFLAGS -Wundef -Wmissing-prototypes -Wmissing-declarations"
+    CFLAGS="$CFLAGS -Wnested-externs"
+    # These warnings are no fun, owing to ickiness in pbs header files:
+    #   -Wshadow -Wstrict-prototypes -Wredundant-decls
+    # or being generally non-helpful:
+    #   -Wconversion
+elif test "$ICC" = yes ; then
+    CFLAGS="$CFLAGS -Wall"
+    CFLAGS="$CFLAGS -wd279"  # constantness of, e.g.: if (HAVE_SED) ...
+    CFLAGS="$CFLAGS -wd810"  # long->int lose precision, too many
+    CFLAGS="$CFLAGS -wd981"  # evaluated in unspecified order
+    CFLAGS="$CFLAGS -wd869"  # function parameters never used
+fi
+# use -MM if available
+if test "$GCC" = yes ; then
+    CPP_M=-MM
+else
+    CPP_M=-M
+fi
+AC_SUBST(CPP_M)
+
+#
+# library functions; see comments at headers
+#
+AC_FUNC_FNMATCH
+AC_TYPE_SIGNAL
+AC_FUNC_VPRINTF
+AC_CHECK_FUNCS(strsep strsignal)
+# library func poll, but do not use if explicitly disabled
+if test $use_poll = 0 ; then
+    AC_MSG_CHECKING([for poll])
+    AC_MSG_RESULT(disabled)
+else
+    AC_CHECK_FUNCS(poll)
+fi
+
+# show the config options
+AC_DEFINE_UNQUOTED(CONFIGURE_OPTIONS, "$ac_configure_args")
+AC_SUBST(version)
+AC_DEFINE_UNQUOTED(VERSION, "$version")
+
+AC_CONFIG_FILES(Makefile mpiexec.spec, date > stamp-h)
+AC_OUTPUT
+

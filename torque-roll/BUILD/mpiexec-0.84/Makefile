@@ -1,0 +1,170 @@
+#
+# Makefile.in for mpiexec
+#
+# $Id: Makefile.in 423 2008-04-21 18:55:11Z pw $
+#
+# Copyright (C) 2000-8 Pete Wyckoff <pw@osc.edu>
+#
+SRC   = mpiexec.c get_hosts.c start_tasks.c task.c event.c util.c config.c \
+	stdio.c growstr.c pmi.c gm.c ib.c psm.c p4.c rai.c concurrent.c \
+	exedist.c spawn.c tv_attach.c \
+	pmgr_collective_mpirun.c pmgr_collective_common.c
+H     = mpiexec.h util.h growstr.h list.h tv_attach.h \
+	pmgr_collective_mpirun.h pmgr_collective_common.h
+OTHER = ChangeLog LICENSE LICENSE.mvapich README README.lam FAQ \
+	mpiexec.1 mpiexec-redir-helper.1 \
+	proc-relations.fig \
+	hello.c hellof.f hellomp.f redir-helper.c \
+	runtests.pl
+PATCH = lam-mpiexec-tm-6.6b1.patch \
+	mpich-1.2.3-alpha-011119-mpiexec.diff \
+	mpich-1.2.3-alpha-020118-mpiexec.diff \
+	pbs-2.2.11-mpiexec.diff \
+	pbs-2.3.11-mpiexec.diff \
+	pbs-2.3.12-mpiexec.diff \
+	pbs-2.3.12-mom-restart.diff \
+	torque-1.1.0p0-mpiexec.diff
+
+AUTOCONF_SRC = configure.in Makefile.in config.h.in mpiexec.spec.in
+AUTOCONF_GEN = configure mpiexec.spec
+CONFIGURE_GEN = Makefile config.h config.cache config.log config.status \
+    stamp-h
+
+DIST_FILES := $(sort $(SRC) $(H) $(OTHER) $(AUTOCONF_SRC) $(AUTOCONF_GEN))
+PATCH_FILES := $(addprefix patch/,$(PATCH))
+
+OBJ = $(SRC:.c=.o)
+CC = gcc
+CFLAGS = -O2 -g -pipe -Wall -Wp,-D_FORTIFY_SOURCE=2 -fexceptions -fstack-protector --param=ssp-buffer-size=4 -m64 -mtune=generic -Wall -W -Wpointer-arith -Wwrite-strings -Wcast-align -Wcast-qual -Wbad-function-cast -Wundef -Wmissing-prototypes -Wmissing-declarations -Wnested-externs
+PBSINCL = -I/opt/torque/include
+CPP_M = -MM
+# sometimes handy
+# VERSION = $(shell date +%Y%m%d)
+VERSION = 0.84
+
+LD = $(CC)
+LDFLAGS = 
+LIBS =  -L/opt/torque/lib -ltorque -Wl,--rpath -Wl,/opt/torque/lib
+
+# install paths
+prefix = /opt/mpiexec
+exec_prefix = /usr
+bindir = /usr/bin
+# datarootdir needed for mandir expansion in autoconf >= 2.60
+datarootdir = @datarootdir@
+mandir = /usr/share/man/man1
+
+# Make this too?  For broken PBSPro installs only.
+ifeq (0,1)
+mpiexec_helper = mpiexec-redir-helper
+endif
+
+.SUFFIXES:
+.SUFFIXES: .c .o
+
+# ensure these first
+all:: configure config.h config.status Makefile
+
+all:: mpiexec $(mpiexec_helper)
+
+mpiexec: $(OBJ)
+	$(LD) $(LDFLAGS) -o $@ $(OBJ) $(LIBS)
+
+mpiexec-redir-helper: redir-helper.o
+	$(LD) $(LDFLAGS) -o $@ $^
+
+.c.o:
+	$(CC) $(CFLAGS) $(PBSINCL) -c $<
+
+.PHONY: clean distclean
+clean::
+	rm -f $(OBJ) mpiexec redir-helper.o mpiexec-redir-helper
+distclean:: clean
+
+# on suns, install wants to search /bin and not do anything,
+# so instead do all this rm and chmod and everything, yuk
+install:: mpiexec
+	[ -d $(DESTDIR)$(bindir) ] || install -d $(DESTDIR)$(bindir)
+	[ -d $(DESTDIR)$(mandir) ] || install -d $(DESTDIR)$(mandir)
+	cp mpiexec $(DESTDIR)$(bindir)
+	-rm -f $(DESTDIR)$(mandir)/mpiexec.1
+	cp mpiexec.1 $(DESTDIR)$(mandir)
+	chmod 444 $(DESTDIR)$(mandir)/mpiexec.1
+
+ifeq (0,1)
+install:: mpiexec-redir-helper
+	cp mpiexec-redir-helper $(DESTDIR)$(bindir)
+	cp mpiexec-redir-helper.1 $(DESTDIR)$(mandir)
+	chmod 444 $(DESTDIR)$(mandir)/mpiexec-redir-helper.1
+endif
+
+
+tags: $(SRC) $(H) config.h
+	ctags $^
+distclean::
+	rm -f tags
+	rm -rf autom4te.cache
+
+# depend
+ifeq (,$(filter clean distclean dist,$(MAKECMDGOALS)))
+-include .depend
+endif
+all:: .depend
+.depend: $(SRC) $(H) config.h Makefile
+	$(CC) $(CPP_M) $(CFLAGS) $(PBSINCL) $(SRC) > .depend
+
+distclean::
+	rm -f .depend
+
+#
+# Test program compilation.  Assumes that an executable can be
+# created in one step using the command "mpicc", as configured
+# via the command line.
+#
+# The SUNWhpc "mpi" compilers require -lmpi, but no paths, to
+# link properly.  Hacky search for it here.
+#
+MPICC = mpicc
+MPIF77 = mpif77
+ifeq (,$(shell echo $(MPICC) | sed 's/.*mpcc$$//; s/.*tmcc$$//'))
+    MPICC_LIB = -lmpi
+endif
+
+hello: hello.c config.h
+	$(MPICC) -o $@ $< $(MPICC_LIB)
+hellof: hellof.f config.h
+	$(MPIF77) -o $@ $< $(MPICC_LIB)
+# your flag may vary:  -openmp for intel, -mp for pgi, nothing for gcc
+hellomp: hellomp.f config.h
+	$(MPIF77) -openmp -o $@ $< $(MPICC_LIB)
+clean::
+	rm -f hello{,f,mp}{,.o}
+	rm -f work.pc{,l}
+
+# ps figure showing how all entities are related
+proc-relations.ps: proc-relations.fig
+	fig2dev -L ps -c -z Letter -m 1.0 -l xxx -n $@ -x 0 -y 0 $< $@
+
+# distribution tarball
+.PHONY: dist
+MV := mpiexec-$(VERSION)
+dist:
+	mkdir $(MV)
+	cp $(DIST_FILES) $(MV)
+	mkdir $(MV)/patch
+	cp $(PATCH_FILES) $(MV)/patch
+	tar cf - $(MV) | gzip -9c > dist/$(MV).tgz
+	rm -rf $(MV)
+
+# stamp file to avoid non-changedness
+config.h: stamp-h
+stamp-h: config.h.in config.status
+	./config.status
+
+Makefile: Makefile.in config.status
+	./config.status
+
+# get rid of configure output too (but not autoconf output)
+distclean::
+	rm -f $(CONFIGURE_GEN)
+

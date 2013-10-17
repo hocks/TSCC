@@ -1,0 +1,4 @@
+# PBS Definitions
+export PBSDEF  = -D__MPBS
+export PBSCFLAGS   = -I/opt/torque/include
+export PBSLDFLAGS  = -L/opt/torque/lib -ltorque -Wl,--rpath -Wl,/opt/torque/lib

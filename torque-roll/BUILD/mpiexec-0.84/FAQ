@@ -1,0 +1,245 @@
+Mpiexec Frequently Asked Questions (FAQ)
+
+Copyright (C) Pete Wyckoff, 2000-8.  <pw@osc.edu>
+
+Here are some notes collected from solving various installation and
+usage problems with mpiexec, organized into a FAQ format.
+
+1.  Does mpiexec work with OpenPBS 2.4?
+
+    There is no OpenPBS 2.4.  Veridian changed the code in 2.3.16
+    so that it claims to be "OpenPBS_2.4".  Type "l s" at a qmgr
+    prompt to see this.  The code is still 2.3.16 in spirit since
+    it is hardly different from 2.3.15 or the last couple years
+    of earlier versions for that matter.
+
+2.  The configure script can't find my PBS library, but I gave it the
+    correct path.
+
+    You probably need to compile mpiexec using whatever compiler you used
+    to build PBS, otherwise some symbols may not be defined.  This will
+    show up as configure complaining "PBS library not found ...".  Check
+    config.log to verify if it really was not found, or if you chose a
+    different compiler.
+
+    Override the compiler choice at configure time by setting the
+    environment variables CC and CFLAGS.
+
+    You can run "bash -x ./configure ..." to see everything it does
+    to try to figure out what's wrong.
+
+3.  Mpiexec exits immediately with the message "mpiexec: Error:
+    get_hosts: tm_init: tm: system error".
+
+    This is the very first line in the code where mpiexec attemps to
+    talk to the local PBS mom.  Lots of things can go wrong so that
+    PBS will not let that happen.  One problem could be that name
+    resolution is not working correctly.  You need to have entries in
+    /etc/hosts (or a working DNS resolver) for both localhost and for
+    your PBS server, like this:
+
+	127.0.0.1  localhost
+	10.0.0.254 front-end fe  # pbs server
+
+    Other variations might work too.  On the server, you probably
+    need hosts entries for all the other nodes, too, but I suspect
+    you'd notice something else broken before mpiexec.  Don't forget
+    to restart pbs_mom or pbs_server as appropriate after changing
+    a system configuration file like /etc/hosts.
+
+4.  Are there any debugging tools to figure out why the entire mess
+    does not work?  Especially this confusing "system error" message?
+
+    There are lots of bits that must cooperate to run a parallel job:  PBS
+    server, PBS mother superior, other PBS moms, mpiexec, mpich library,
+    and your application code.  It's tough to figure out where the fault
+    lies when something fails.
+
+    PBS problems are frequently logged.  See on the mother superior node
+    (the compute node which holds process #0 of your parallel job) the
+    file
+    	/var/spool/pbs/mom_logs/20021030
+    or whatever the date is today.  On the PBS server machine, you'll
+    find log messages in
+    	/var/spool/pbs/server_logs/20021030
+    If you install into a different location you'll have to change
+    the path prefix, of course.
+
+    The "big hammer" of debugging tools here is strace.  If mpiexec
+    complains when talking to the PBS mom, grab the mpiexec with an strace
+    and watch what it's doing right before it prints out the error
+    message:
+	strace -vfF -s 400 -o /tmp/strace.mpiexec.out mpiexec myjob
+    Look through the output file for the error message, then back up
+    a few lines and try to guess what went wrong.  If it looks harmless,
+    maybe the PBS mom is causing the problem.  As root, find the pid
+    of the pbs_mom on the node, then attach to it with strace in a
+    different terminal session:
+	strace -vfF -s 400 -o /tmp/strace.mom.out -p <pid>
+    then start your job and watch what happens.
+
+5.  When I do "mpiexec <script>", it doesn't work.
+
+    Mpiexec is a parallel program spawner: it expects to be given an
+    executable compiled with an MPI library.  Some MPI library versions
+    initialize themselves using command-line arguments to the process.
+    If you try to mpiexec a shell or perl script, for instance, these
+    arguments are delivered to the shell, and it is your duty to pass
+    them on to the actual MPI code when you invoke it.  Do something
+    like the following if you must:
+
+	#!/bin/bash
+	echo hi from one of the parallel processes
+	mpiexec a.out "$@"
+	echo this one is all done
+
+6.  My program sees extra weird command line arguments.
+
+    In the MPICH/p4 library, the only way to start processes is to
+    provide them with command-line arguments specifying information about
+    their environment: hostname and port number of the "master", own node
+    ID, total number of nodes, etc.  These appear in main() in the argv[]
+    array and are passed into MPI_Init() which interprets them to construct
+    the parallel environment.  It then removes from argv[] the arguments
+    it understands and leaves the rest for the main program.
+
+    If your code tries to parse the arguments in argv[] _before_ calling
+    MPI_Init(&argc, &argv), you will unfortunately see, and not understand,
+    these extra arguments.  The best solution is to put the call to
+    MPI_Init before any argument processing.
+
+7.  When my job is killed by PBS due to hitting a walltime (or any other)
+    limit, the error output file has a strange line "mpiexec: warning:
+    main: task x died with signal 15".
+
+    This is proper behavior by mpiexec, and is one of the good features
+    that makes it better than the rsh-based mpirun programs.
+
+    Using mpirun, the PBS mom will kill all processes that it can find on
+    the mother superior node (first node assigned to the job).  Eventually
+    the MPI processes on other nodes will die off because they notice that
+    one of their brethren has gone away when it is time to send it that
+    deceased peer a message.  PBS does not know about these processes on
+    other nodes since they were started via rsh, and can not know to kill
+    them off.
+
+    With mpiexec, PBS itself starts all the processes in the parallel job,
+    thus when it notices that you have gone beyond your walltime, it can
+    kill off each process individually, with no mess and no fuss.  This
+    ensures that you don't get runaway processes due to code bugs, for one
+    thing, and also accounts for CPU and other resources used by the entire
+    job, not just process number zero.
+
+8.  My code generates a long error message:
+
+      process not in process table; my_unix_id = 29969 my_host=n124
+      Probable cause:  local slave on uniprocessor without shared memory
+      Probable fix:  ensure only one process on n124
+      (on master process this means 'local 0' in the procgroup file)
+      You can also remake p4 with SYSV_IPC set in the OPTIONS file
+      Alternate cause:  Using localhost as a machine name in the progroup
+      file.  The names used should match the external network names.
+
+    Make sure you have configured and compiled mpich/p4 with
+    "--comm=shared".  If you are sure you do _not_ want mpich to be able to
+    do shared-memory communication within SMP nodes, then you must let
+    mpiexec know about this.  The easiest way is to configure mpiexec with
+    "--disable-p4-shmem" (described above) and recompile, or you can use
+    the runtime flag "-mpich-p4-no-shmem" as a quick test to verify this is
+    indeed the problem.  There is no way to auto-detect if mpich was
+    configured with or without the shared option.
+
+9.  The compute node processes do not start up properly, they say something
+    like:
+
+	[1] Error: Unable to connect to the master !
+
+    This is an error message from MPICH-GM, and others may give a similar
+    error when the compute processes are not able to contact back to the
+    master.
+
+    The hostnames of your compute nodes must be listed in /etc/hosts (or
+    DNS if you have one) and assigned to the IP address of the machine as
+    viewed by other nodes in the cluster.  A common mistake is to assign
+    the hostname to the loopback address:
+
+	127.0.0.1   node01 localhost
+	192.168.0.1 node01
+
+    Never do this.  A proper /etc/hosts file should look something like:
+
+	127.0.0.1   localhost
+	192.168.0.1 node01
+
+    The problem happens when a compute process on node01 tries to resolve
+    "node01" to figure out on what address to listen for incoming
+    connections, and end up listening on the loopback where no external
+    machine can connect.  Mpiexec has the same problem when it binds
+    on a local port---if it ends up binding to 127.0.0.1 due to this
+    /etc/hosts problem it will never receive connections from processes on
+    different machines.
+
+10. I get a bunch of messages "connect: Connection refused" and the code
+    exits.
+
+    If you're using the Mellanox Infiniband IBGD distribution, and you are
+    using the mpich that they include, and you have OpenPBS or Torque on
+    your machine, it won't work.  Mellanox included a patch to fix I/O
+    redirection problems in PBSPro to satisfy one particular customer.
+    That fix happens to break what would otherwise be working setups that
+    use OpenPBS or Torque.
+
+    As a quick hack, you can find the shared library libmpich.so, edit it
+    and change the three strings that look like "MPIEXEC_STDOUT_PORT" (and
+    STDERR and STDIN) and change them to, e.g. "ZPIEXEC_STDOUT_PORT" or
+    anything else that is the same length and unlikely to be defined in
+    your environment.
+
+    Note, this is also a problem with OSU's mvapich releases 0.9.6 and
+    0.9.7, as they included the bogus patch from Mellanox.  Starting
+    with 0.9.8rc0, mvapich works again.
+
+11. Jobs fail when approaching large processor counts (say 512).
+
+    The error message might be "need XXX sockets, only YYY available" if
+    detected early, or might appear later as "Too many open files".
+    Common mpiexec usage requires two open sockets per task, or none
+    for "-nostdout" usage.  The default open file limit is often low,
+    around 1024.  In bash, "ulimit -n" will show the number of open files
+    allowed in the session.  You can increase that on Red Hat-based systems
+    by adding a line to /etc/security/limits.conf:
+	* - nofile 65536
+
+    Another way to increase the limits is to put a line in your
+    /etc/init.d/pbs_mom (or equivalent) startup script that explicitly
+    sets the limit for the mom and all its job descendents:
+	ulimit -n 65536
+
+12. Only one process is launched, and mpiexec says "task 0 exited before
+    completing MPI startup".
+
+    This happens when you are using MPICH2, but have told mpiexec that
+    it should use the MPICH1/P4 communication method.  Try with
+    "--comm=pmi", and if that works, rebuild mpiexec using
+    "--with-default-comm=pmi" for convenience.
+
+13. Mpiexec exits immediatly with the error "mpiexec: Error: get_hosts:
+    pbs_connect: Unauthorized Request".
+
+    You need to include the pbs_iff executable on your compute nodes,
+    and it must be setuid root.  If you're using the Fedora Torque RPMs,
+    this implies that you should install the torque-client RPM as well
+    as libtorque and torque-mom.
+
+    If the binary is present, check that the permissions are correct
+    (srwxr-xr-x or similar), and that it is owned by root.  If the binary
+    lives remotely on an NFS-mounted file system, be sure that you have
+    not mounted with the "nosuid" option.
+
+14. Compilation fails when building against torque, unable to find
+    libpbs.a and liblog.a.
+
+    This is usually due to the 'pbs-config' script not being found
+    during the configure process.  This script should be included if
+    you installed torque from source.  If you installed torque using
+    RPM, make sure to install the torque-devel package.

@@ -1,0 +1,60 @@
+mpiexec.o: mpiexec.c mpiexec.h /opt/torque/include/pbs_ifl.h \
+ /opt/torque/include/tm.h /opt/torque/include/tm_.h config.h util.h \
+ growstr.h list.h
+get_hosts.o: get_hosts.c mpiexec.h /opt/torque/include/pbs_ifl.h \
+ /opt/torque/include/tm.h /opt/torque/include/tm_.h config.h util.h \
+ growstr.h list.h
+start_tasks.o: start_tasks.c mpiexec.h /opt/torque/include/pbs_ifl.h \
+ /opt/torque/include/tm.h /opt/torque/include/tm_.h config.h util.h \
+ growstr.h list.h tv_attach.h
+task.o: task.c mpiexec.h /opt/torque/include/pbs_ifl.h \
+ /opt/torque/include/tm.h /opt/torque/include/tm_.h config.h util.h \
+ growstr.h list.h
+event.o: event.c mpiexec.h /opt/torque/include/pbs_ifl.h \
+ /opt/torque/include/tm.h /opt/torque/include/tm_.h config.h util.h \
+ growstr.h list.h
+util.o: util.c /opt/torque/include/pbs_error.h \
+ /opt/torque/include/pbs_error_db.h mpiexec.h \
+ /opt/torque/include/pbs_ifl.h /opt/torque/include/tm.h \
+ /opt/torque/include/tm_.h config.h util.h growstr.h list.h
+config.o: config.c mpiexec.h /opt/torque/include/pbs_ifl.h \
+ /opt/torque/include/tm.h /opt/torque/include/tm_.h config.h util.h \
+ growstr.h list.h
+stdio.o: stdio.c mpiexec.h /opt/torque/include/pbs_ifl.h \
+ /opt/torque/include/tm.h /opt/torque/include/tm_.h config.h util.h \
+ growstr.h list.h
+growstr.o: growstr.c util.h growstr.h
+pmi.o: pmi.c mpiexec.h /opt/torque/include/pbs_ifl.h \
+ /opt/torque/include/tm.h /opt/torque/include/tm_.h config.h util.h \
+ growstr.h list.h
+gm.o: gm.c mpiexec.h /opt/torque/include/pbs_ifl.h \
+ /opt/torque/include/tm.h /opt/torque/include/tm_.h config.h util.h \
+ growstr.h list.h
+ib.o: ib.c mpiexec.h /opt/torque/include/pbs_ifl.h \
+ /opt/torque/include/tm.h /opt/torque/include/tm_.h config.h util.h \
+ growstr.h list.h pmgr_collective_mpirun.h pmgr_collective_common.h
+psm.o: psm.c mpiexec.h /opt/torque/include/pbs_ifl.h \
+ /opt/torque/include/tm.h /opt/torque/include/tm_.h config.h util.h \
+ growstr.h list.h
+p4.o: p4.c mpiexec.h /opt/torque/include/pbs_ifl.h \
+ /opt/torque/include/tm.h /opt/torque/include/tm_.h config.h util.h \
+ growstr.h list.h
+rai.o: rai.c mpiexec.h /opt/torque/include/pbs_ifl.h \
+ /opt/torque/include/tm.h /opt/torque/include/tm_.h config.h util.h \
+ growstr.h list.h
+concurrent.o: concurrent.c mpiexec.h /opt/torque/include/pbs_ifl.h \
+ /opt/torque/include/tm.h /opt/torque/include/tm_.h config.h util.h \
+ growstr.h list.h
+exedist.o: exedist.c mpiexec.h /opt/torque/include/pbs_ifl.h \
+ /opt/torque/include/tm.h /opt/torque/include/tm_.h config.h util.h \
+ growstr.h list.h
+spawn.o: spawn.c mpiexec.h /opt/torque/include/pbs_ifl.h \
+ /opt/torque/include/tm.h /opt/torque/include/tm_.h config.h util.h \
+ growstr.h list.h
+tv_attach.o: tv_attach.c util.h mpiexec.h /opt/torque/include/pbs_ifl.h \
+ /opt/torque/include/tm.h /opt/torque/include/tm_.h config.h growstr.h \
+ list.h tv_attach.h
+pmgr_collective_mpirun.o: pmgr_collective_mpirun.c \
+ pmgr_collective_mpirun.h pmgr_collective_common.h
+pmgr_collective_common.o: pmgr_collective_common.c \
+ pmgr_collective_common.h

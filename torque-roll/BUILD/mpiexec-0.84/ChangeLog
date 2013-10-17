@@ -1,0 +1,1125 @@
+$Id: ChangeLog 429 2010-08-02 18:33:28Z djohnson $
+
+Mon Aug  2 14:22:39 EDT 2010 djohnson
+	Release 0.84
+	* FAQ: Include frequent compilation issue due to missing
+	  'pbs-config'
+	* mpiexec.1: Small clarification to document '-n' and '-np' as
+  	  synonyms.
+	
+Mon Apr 21 14:54:35 EDT 2008  pw
+	* Makefile.in: Put FAQ in distribution, and long-forgotten man
+	  page for redir helper.
+
+Mon Apr 21 14:52:38 EDT 2008  pw
+	* FAQ: Copy from README just the frequently asked questions.
+	* README: Remove FAQ bits.
+
+Mon Apr 21 10:24:37 EDT 2008  pw
+	* pmgr_collective_mpirun.c pmgr_collective_mpirun.h
+	  pmgr_collective_common.c pmgr_collective_common.h: New files,
+	  copied from mvapich release 1.0 and fixed to compile cleanly.
+	  There are four copies of each file in that tree, all currently the
+	  same, but watch for drift.  Preferentially track
+	  mpid/ch_gen2/process in the future.  Not completely integrated
+	  into mpiexec (error messages, etc.) to make it easier to pull
+	  in changes from mvapich in the future.
+	* LICENSE.mvapich: New file, license for mvapich files.
+	* Makefile.in: Build the new files.
+	* README: Document updated support for mvapich 1.0.
+	* ib.c: Use the new protocol version 8 implemented here.
+	These code changes by Frank Mietke.
+
+Thu Apr 10 17:37:44 EDT 2008  pw
+	* mpiexec.h start_tasks.c pmi.c mpiexec.c: Add support for
+	  totalview in MPICH2.
+	* Makefile.in: Build and distribute new files.
+	* README.tv: Document new mpich2 and old mpich totalview support.
+	* tv_attach.c tv_attach.h: New files that provide support functions
+	  for MPICH2-style totalview attachment.
+	These changes and documentation by Frank Mietke.
+
+Tue Mar 25 14:29:28 EDT 2008  pw
+	* start_tasks.c util.c: Two fixes for mac, as found by Bill Gropp.
+
+Sun Mar 16 17:14:21 EDT 2008  pw
+	* config.c util.c concurrent.c stdio.c start_tasks.c task.c rai.c
+	  mpiexec.c: Fix a bunch of little compile warnings from Intel cc 9.1,
+	  as reported by Denis Anjos.
+
+Sat Mar 15 15:14:11 EDT 2008  pw
+	* psm.c: Implementation of new startup protocol for QLogic InfiniPath.
+	* start_tasks.c stdio.c: Startup environment and abort messages.
+	* mpiexec.h mpiexec.c README Makefile.in: Wiring for new protocol.
+	* configure.in configure: Configure glue.
+	All these changes by Christian Bell.
+
+Fri Mar 14 10:37:38 EDT 2008  pw
+	* ib.c: Fix bug with version mismatch code when version is also
+	  out of the known range.
+
+Tue Mar 11 14:56:20 EDT 2008  pw
+	* mpiexec.c: Accept lone "--" on command line to indicate end
+	  of options, as suggested by Andrew McNabb.
+
+Fri Feb 22 15:22:28 EST 2008  pw
+	Release 0.83
+	* configure.in configure: Accept "mpich2" abbreviation for
+	  mpich2/pmi.
+
+Fri Feb 22 14:24:37 EST 2008  pw
+	* configure.in configure: Bump version and regenerate.
+
+Tue Feb  5 11:28:42 EST 2008  pw
+	* ib.c: Add suport for version 6 startup in mvapich 1.0.  Patch
+	  provided by Frank Mietke.
+
+Mon Feb  4 14:21:04 EST 2008  pw
+	* event.c: On a "remote system warning" from tm_poll, look up the
+	  event structure to be able to point at the broken node.
+
+Sun Sep 23 11:25:05 EDT 2007  pw
+	* README: Explain mpich2/smpd unusability.  Update PBSPro notes
+	  to point out that version 8 does not work with mpiexec.
+
+Thu Jun 21 15:17:10 EDT 2007  pw
+	* configure.in configure: Force selection of a default comm device.
+	* README: Explain this required option a bit more.
+	* Makefile.in: Fix for recent autoconf.
+
+Tue May 29 15:24:37 EDT 2007  pw
+	* ib.c: Support version 5 two-phase startup protocol for mvapich
+	  0.9.9.  Inspiration and testing by Jan Ploski.
+
+Mon May 28 07:16:29 EDT 2007  pw
+	* get_hosts.c: Correct i -> j index problem.  Should not have caused
+	  any errors, just perhaps slower and obviously wrong.  From Eygene
+	  Ryabinkin.
+
+Thu May 10 15:49:53 EDT 2007  pw
+	* mpiexec.h mpiexec.c configure.in configure config.h.in start_tasks.c:
+	  Add basic support for Portals, at least using userspace TCP NAL.
+	  Also a good example of how to add a new device in mpiexec.
+
+Thu Mar  8 12:18:16 EST 2007  pw
+	* config.c mpiexec.c: Fix two old bugs found by Thomas Svedberg.
+	  The interesting one only affect mpich-p4/shmem systems with
+	  ppn > 2.
+
+Mon Feb  5 15:55:01 EST 2007  pw
+	* README: Rearrange pbs notes a bit.  Add FAQ for missing pbs_iff.
+
+Tue Jan 30 14:29:08 EST 2007  pw
+	* list.h: PGI compiler does not know typeof.  Bug found by
+	  Filippo Spiga.
+
+Wed Nov 29 10:21:37 EST 2006  pw
+	* gm.c util.h task.c list.h event.c ib.c: Hacks and fixes for
+	  Cray C compiler.
+
+Tue Nov 28 14:42:17 EST 2006  pw
+	Release 0.82
+	* configure.in configure: Bump version and regenerate.
+
+Mon Nov 27 17:17:13 EST 2006  pw
+	* get_hosts.c mpiexec.h mpiexec.c mpiexec.1: Implement -npernode
+	  generalization of -pernode, by Thomas Zeiser.
+
+Mon Nov 27 17:00:18 EST 2006  pw
+	* start_tasks.c: Do not track startup_complete for COMM_NONE jobs.
+	  Bug found by Thomas Zeiser.
+
+Mon Nov 27 11:46:59 EST 2006  pw
+	* runtests.pl: Add a warning about bad mpich1/p4 behavior, and update
+	  for new output strings.
+	* contests.pl: Fix obvious bug, initialize spid for debugging.
+	* mpiexec.h: Track individual TM node ids.
+	* get_hosts.c: Parse host data in two passes, to track TM node ids
+	  and to use fewer string comparisons.
+	* config.c spawn.c: Set the cpu_index on each task as it is created.
+	* concurrent.c: Pass TM node ids to clients.  Do not exit on SIGPIPE.
+	  Be a bit more careful with the nodealloc lock.
+	* start_tasks.c: Spawn on particular TM node id.
+	* task.c: Look at individual TM node ids to get hostname.
+	* event.c: Warn on remote system error, see what turns up.
+	* mpiexec.c: Track CPU indexes.  Look at sigaction return value.
+
+Sat Nov 25 16:11:57 EST 2006  pw
+	* mpiexec.h get_hosts.c concurrent.c spawn.c pmi.c mpiexec.c: Rename
+	  numcpu in preparation for tracking individual TM node ids.
+
+Thu Nov 23 19:44:49 EST 2006  pw
+	* mpiexec.c: When no exit statuses are obtained, do not complain.
+
+Thu Nov 23 13:12:22 EST 2006  pw
+	* runtests.pl: Be a bit more precise in explaining the mpich2
+	  MPI_Abort problem.
+	* pmi.c mpiexec.c spawn.c mpiexec.h: Add support for get_ranks2hosts
+	  PMI command used by Intel MPI version 3.  Initial patch by Thomas
+	  Zeiser.
+
+Wed Nov 15 15:18:54 EST 2006  pw
+	* get_hosts.c task.c: The field tasks[i].done tasks on a range
+	  of values, not just true/false.
+	* runtests.pl: Add a warning explaining that mpich2 MPI_Abort
+	  is broken.
+
+Mon Oct 30 10:38:20 EST 2006  pw
+	* stdio.c: Likely bug fix when stdio is closed.
+
+Mon Aug 28 17:17:17 EDT 2006  pw
+	* start_tasks.c: Make -transform-hostname work on MPICH2, thanks
+	  to Brad Settlemyer for the prompting and testing.
+	* mpiexec.1: Document this and explain better.
+
+Mon Aug 28 17:09:32 EDT 2006  pw
+	* contests.pl: Be a little more verbose about expectations; check
+	  for working /bin/true and false.
+
+Fri Aug 25 16:22:11 EDT 2006  pw
+	* pmi.c: Add some warnings about PMI name publishing problems.
+	* README: Fix typo.
+
+Sun Jul 16 13:15:28 EDT 2006  pw
+	* README: Update open file limit text a bit.
+
+Thu Jun 29 13:32:47 EDT 2006  pw
+	* mpiexec.h start_tasks.c exedist.c mpiexec.c: Add DONE_NOT_STARTED
+	  state to print better messages at task exit time.
+	* task.c: Avoid killing tasks that are not running, although harmless.
+	* README: Add mpich/p4 vs mpich2/pmi FAQ item.  Rearrange TODOs.
+	* runtests.pl: Catch new startup-incomplete message.
+
+Fri May 12 15:45:11 EDT 2006  pw
+	* get_hosts.c: Fix -nolocal -pernode as reported by Chris Maestas.
+	* runtests.pl: Add a test to check for this, and make sure it works.
+	* stdio.c: Update comment hinting at how Torque compile may cause
+	  a weird tty symptom on Mac.
+
+Tue May  9 18:05:20 EDT 2006  pw
+	* config.c mpiexec.1: Accept # comments in config spec.  Rearrange a
+	  bit to avoid a loop.  From Cray.
+	* stdio.c: Finally get rid of PRINTF macro.  Fix a potential negative
+	  pid race fix, from Cray.
+	* exedist.c mpiexec.c start_tasks.c: Minor cleanups from Cray.
+
+Wed Apr 19 23:51:14 EDT 2006  pw
+	Release 0.81
+	* stdio.c: Clear returned events for new fds.  Convert some PRINTF
+	  to debug.  Maybe optimize a bit by checking n before looping over
+	  everything.  Work around a potential Mac bug related to polling
+	  on tty stdin.
+
+Wed Apr 19 15:56:49 EDT 2006  pw
+	* gm.c ib.c: Fix off-by-one error in select for --disable-poll case.
+	* mpiexec.h stdio.c pmi.c: Pass rfs rather than use global, avoids
+	  collision with rfs use in ib.c and gm.c.
+
+Wed Apr 19 14:38:48 EDT 2006  pw
+	* start_tasks.c gm.c mpiexec.h: Implement asynchronous GM startup.
+	* stdio.c: Fix bug found by Garrick.
+	* configure.in configure: Bump version.
+
+Wed Apr 12 12:47:08 EDT 2006  pw
+	* runtests.pl: Try again if qsub fails, to work around slow PBS
+	  servers.
+
+Tue Apr  4 10:14:30 EDT 2006  pw
+	* README: Add FAQ entry for running out of sockets.  Thanks to
+	  David Golden for this one.
+
+Tue Apr  4 10:11:39 EDT 2006  pw
+	* mpiexec.h util.c: Remember directory name from where mpiexec was
+	  started, if available.
+	* config.c spawn.c: Add extra 0 argument to resolve_exe call.
+	* start_tasks.c mpiexec.c: Look for redir helper in same directory
+	  as mpiexec.  Thanks to Thomas Zeiser for the suggestion.
+	* configure.in configure: Bump to pre4.
+
+Tue Apr  4 10:10:44 EDT 2006  pw
+	* get_hosts.c: Remove extra attributes on hostnames added by PBSPro.
+
+Sat Mar 25 17:00:50 EST 2006  pw
+	* Makefile.in configure.in configure: Refine use of torque pbs-config
+	  a bit; move specific library names out of Makefile.
+
+Mon Mar 20 17:18:18 EST 2006  pw
+	* get_hosts.c: Accommodate PBSPro TM API difference in node versus
+	  CPU counting.
+
+Fri Mar 17 15:01:50 EST 2006  pw
+	* mpiexec.spec mpiexec.spec.in: Rename to auto-generate this file.
+	* configure.in configure: Auto-gen mpiexec.spec.  Bump version for
+	  a prerelease.
+	* Makefile.in: Remove spec version check, auto-generate instead.
+	* mpiexec.c: Remove bogus hacked-in Version strings.
+
+Fri Mar 17 13:06:07 EST 2006  pw
+	* redir-helper.c: New file, to work around PBSPro lack of redirection.
+	* Makefile.in: Compile this new redir-helper code.
+	* get_hosts.c: Fix exec_host syntax better.
+	* configure.in configure config.h.in: Make redir-helper a
+	  configure-time option.
+	* start_tasks.c: Fork mpiexec-redir-helper in front of the actual
+	  executable.
+	* README: Some documentation.
+	* mpiexec-redir-helper.1: New file, man page for the new code,
+	  although it is not for users to run directly.
+
+Thu Mar 16 15:08:34 EST 2006  pw
+	* get_hosts.c: Account for new exec_host syntax in PBSPro, thanks
+	  to Doug Johnson.
+
+Tue Mar 14 11:30:29 EST 2006  pw
+	* configure.in configure: Add pbs-config check for new torque, from
+	  Garrick Staples.
+
+Tue Jan 24 16:45:37 EST 2006  pw
+	Switch from CVS to SVN repository.
+
+Mon Jan 23 17:58:01 EST 2006  pw
+	* spawn.c: New file, to support MPI_Comm_spawn.
+	* Makefile.in: Compile new file.  Remind distributor to fix spec file.
+	* concurrent.c event.c exedist.c get_hosts.c: Add indirection to
+	  tasks[].status.
+	* mpiexec.c: Do hostname lookup here instead of in start_tasks(), now
+	  that it can be called multiple times.  Indirection for status.
+	* mpiexec.h: New structure to group tasks by when they were spawned.
+	  Some new functions.
+	* pmi.c: Support multiple keypair spaces.  Handle getbyidx command
+	  needed for spawning.
+	* start_tasks.c: Look at start and end indexes in spawns[] rather than
+	  going from 0 to numtasks.
+	* stdio.c: Functions to communicate between stdio listener and parent
+	  to handle spawning new tasks.
+	* util.c util.h: New handy functions to communicate strings.
+	* config.c: Export a function.
+
+Sun Jan 22 12:48:51 EST 2006  pw
+	* mpiexec.c mpiexec.h config.c: Always return a new string in
+	  resolve_exe to simplify usage.
+
+Sat Jan 21 17:08:27 EST 2006  pw
+	* pmi.c: Use standard list type for keypairs.  Handle mcmd syntax
+	  used by spawn.  Handle three name publishing commands for MPI2.
+	  Parse spawn command but do not do anything with it yet.  Check
+	  for duplicate keys in put command.
+
+Fri Jan 20 11:52:59 EST 2006  pw
+	* runtests.pl: Reorganize nicely, add comments on tests that may
+	  fail due to bad mpich2 or PBS configuration.
+	* config.c mpiexec.h: Switch to using standard list.h and get rid
+	  of the single static "working" config_spec_t structure.
+	* hello.c: Quiet a couple of compile warnings.
+
+Tue Jan 10 09:11:18 EST 2006  pw
+	* concurrent.c: Fix compilation on rh73, thanks to Chris Samuel.
+
+Mon Dec 19 21:35:55 EST 2005  pw
+	* stdio.c event.c task.c mpiexec.c mpiexec.h concurrent.c: Introduce a
+	  pipe between the main process and the stdio lister.  Adapt some
+	  mechanisms to use it instead of signals.
+	* gm.c start_tasks.c: Move abort_fd handling into gm instead of
+	  start_tasks for better symmetry.
+	* ib.c: Rename abort_fd function.
+
+Sat Dec  3 17:33:22 EST 2005  pw
+	* concurrent.c mpiexec.h: Release client properly after last event.
+	  Return number of clients terminated to main when killing all.
+	* mpiexec.c: Exit zero if -server and no connected clients when
+	  signalled, as suggested by Martin Schafföner.
+	* contests.pl: Test this new behavior.
+
+Sat Dec  3 16:56:54 EST 2005  pw
+	* concurrent.c: Propagate concurrent client return code properly.
+	* contests.pl: Test this bug, found by Martin Schafföner.
+
+Tue Nov  1 16:12:39 EST 2005  pw
+	* gm.c: Remove duplicated code bug from nonblock checkin (never
+	  released).  Make error and debug lines mention gm and mx.
+	* README mpiexec.1: Add documentation that GM and MX are similar.
+	* configure.in configure: Fix spacing, allow mx or gm.
+	* mpiexec.c: Allow mx as well as gm.
+	* start_tasks.c: Set env vars for mpich/mx in COMM_MPICH_GM too.
+	  Thanks to Denis Charland for doing the initial port.
+
+Tue Nov  1 11:03:21 EST 2005  pw
+	* util.c: Add commented-out code to include a timestamp in each
+	  debugging output line.
+
+Fri Oct 28 13:25:39 EDT 2005  pw
+	* event.c: Move start event processing code into generic dispatch.
+	* start_tasks.c mpiexec.h: Handle start events while spawning, poke
+	  ib service while waiting for all start messages.
+	* ib.c: Bail if something dies in start event handler while waiting
+	  for accept.
+
+Thu Oct 27 15:04:44 EDT 2005  pw
+	* start_tasks.c mpiexec.h mpiexec.c event.c: Report if tasks exited
+	  before MPI startup was complete.
+	* ib.c: Be more asynchronous, check more error codes.
+
+Wed Oct 26 20:43:10 EDT 2005  pw
+	* mpiexec.1: Update out-of-date diagnostic.
+	* util.c util.h: Add error-returning version of read_full.
+	* start_tasks.c mpiexec.h mpiexec.c: Return any error code from
+	  task startup and kill all if so.
+
+Mon Oct 10 11:48:04 EDT 2005  pw
+	* ib.c: Remove duplicated \n
+	* task.c: Include progname and redo a bit.
+
+Mon Oct 10 07:43:17 MDT 2005  pw
+	* hello.c: Do not time out MPI startup so quickly.
+	* task.c: Do not print all hostnames, just the first couple and a
+	  summary.
+
+Thu Oct  6 17:52:11 EDT 2005  pw
+	* ib.c: Use debug() so printfs go to stderr and to centralize
+	  debug level checks.
+
+Thu Sep  8 08:48:45 EDT 2005  pw
+	* concurrent.c: Include header for AIX, thanks to Chris Samuel.
+
+Mon Aug  1 11:45:14 EDT 2005  pw
+	* config.c: Fix off-by-one errors regarding processor assignment.
+	* runtests.pl: Add -config vs -np tests.  Revert debugging code.
+
+Fri Jul 29 10:42:43 EDT 2005  pw
+	* gm.c: Force new socket to be non-blocking.
+	* ib.c start_tasks.c: Support new startup protocol in mvapich
+	  >= 0.9.5-112.  Note new MPIRUN_PROCESSES env var scales poorly.
+
+Fri Jul 15 11:04:00 EDT 2005  pw
+	Release 0.80
+	* configure.in configure: Bump version.
+	* Makefile.in: Put tarballs in subdir.
+	* mpiexec.spec: Bump version, add comments, remove requires.
+
+Wed Jul 13 14:04:46 EDT 2005  pw
+	* mpiexec.c: Default some signals back to what they were to avoid
+	  meddlesome wrapper scripts.  Else wait() fails funnily.
+	* contests.pl: Grab stderr, use print/exit rather than die.
+	* concurrent.c: Fix umask meddling with top-level sock dir perms.
+	* README: Fix documentation.
+	* list.h: Convert through ulong for 64-bit machines; known aligned.
+
+Tue Jun 21 14:41:25 EDT 2005  pw
+	* list.h: New file.
+	* Makefile.in concurrent.c event.c task.c mpiexec.h: Use linked
+	  list rather than auto-growing array for evts and tids.
+	* contests.pl: Add MPI tests.  Determine PBS allocation automatically.
+
+Fri Jun 17 15:44:37 EDT 2005  pw
+	* configure.in configure config.h.in: Add option to specify path
+	  to fast_dist.
+	* exedist.c: Use config option.  Do not run if only 1 node.
+	* README: Document new configure option.
+	* mpiexec.1: Fix wording in concurrent section.
+	* stdio.c: Fix EPIPE bug introduced three days ago.
+
+Fri Jun 17 14:47:49 EDT 2005  pw
+	* contests.pl: New script for interactive testing of concurrency.
+	* runtests.pl: Add a test for closed stdin but no -nostdin.
+
+Wed Jun 15 16:32:27 EDT 2005  pw
+	* exedist.c: Major changes by Dennis.
+	* mpiexec.c mpiexec.h: Pass executable name to distribute.
+
+Tue Jun 14 17:30:23 EDT 2005  pw
+	* mpiexec.c: Notice streams after argument parsing to allow a
+	  debugging message in stdio.c.
+	* stdio.c: Do not listen to input-only sockets.  Close all IN
+	  after connected if aggregate was closed to start with.
+
+Tue Jun 14 16:31:33 EDT 2005  pw
+	Merge rest of concurrent changes.
+	* Makefile.in: Use new files, ignore old ones.
+	* wait_tasks.c: Remove.
+	* exedist.c: Compile, but comment out.
+	* gm.c ib.c p4.c rai.c: Use new poll interface.
+	* pmi.c: Add historical comment.  All blocking interaction here.
+	* mpiexec.1: Document concurrency.
+	* mpiexec.c: Major rearrangement for master/client.
+	* mpiexec.h: New event/task prototypes.
+	* runtests.pl: Major reorganization for easier changes later.
+	* start_tasks.c: Remove polling, handle master/client cases.
+	* stdio.c: Send TERM to parent on MPI_Abort.
+
+Mon Jun 13 10:07:17 EDT 2005  pw
+	Import new files from concurrent branch.
+	* concurrent.c: Handle communication between master mpiexec process
+	  and its clients.
+	* event.c: Manage event stream from TM for multiple clients.
+	* task.c: Manage tasks, waiting and killing.  Will replace
+	  wait_tasks.c.
+	* exedist.c: Spawn separate code to distribute executable to nodes.
+
+Thu Jun  2 17:55:48 EDT 2005  pw
+	* get_hosts.c mpiexec.c mpiexec.h mpiexec.1: Add new option,
+	  -transform-hostname-program, per patch from Dries Kimpe to generate
+	  alternate hostnames using an external script.
+
+Mon May 23 10:12:19 EDT 2005  pw
+	* start_tasks.c: Add fix for large environments, thanks to Belmont
+	  Cheung.  Add another env var for IB to support Topspin changes
+	  to mvapich.
+
+Thu Apr 28 17:30:43 EDT 2005  pw
+	* pmi.c: Modify init version string to support Intel port of mpich2,
+	  contributed by Anton Starikov.
+
+Fri Apr 22 18:06:43 EDT 2005  pw
+	* growstr.c: Apply va_list bug fix from Kai Germaschewski.  Remove
+	  string init in growstr_init_empty.
+
+Tue Apr 12 14:13:46 EDT 2005  pw
+	Release 0.79
+	* configure.in configure: Bump version.
+
+Tue Apr 12 19:11:22 CEST 2005  pw
+	* rai.c: New file.
+	* Makefile.in README config.h.in configure configure.in mpiexec.1
+	  mpiexec.c mpiexec.h start_tasks.c: Add new mpich/rai device.
+	* runtests.pl: Add comments for some setups.
+
+Tue Apr 12 11:45:52 EDT 2005  pw
+	* start_tasks.c: Fix glaring mpich/p4 bug added after 0.78 release,
+	  thank goodness.
+	* runtests.pl: Default no nodeprops, add mpenvsetup variable to
+	  run a shell command before the mpiexec invocation.
+
+Mon Mar 14 13:31:32 EST 2005  pw
+	* mpiexec.1: Update for new in-order tasks allocation.
+	* mpiexec.c: Use setjmp/longjmp with signal handling.
+	* stdio.c: Ignore SIGHUP and SIGINT else ctrl-c kills stdio now.
+
+Mon Mar 14 11:43:48 EST 2005  pw
+	* mpiexec.h: Separate nodes and tasks.
+	* config.c: Obey config file order when allocating tasks.  Add
+	  warning for mpich1/p4.  Build new tasks array.
+	* get_hosts.c: Parse into nodes array, simplify.
+	* gm.c wait_tasks.c: Use name field from nodes, not tasks.
+	* mpiexec.c: Use nodes, fix -nostdin -nostdin error.
+	* runtests.pl: Add comment about nodeprops for 1-node jobs.
+	* start_tasks.c: Use nodes, build myaddr as needed.
+	* stdio.c: Remove unused function.
+
+Mon Mar 14 10:51:05 EST 2005  pw
+	* config.c get_hosts.c gm.c ib.c mpiexec.c mpiexec.h pmi.c
+	  start_tasks.c stdio.c wait_tasks.c: Pluralize numtask.
+
+Mon Mar 14 10:17:43 EST 2005  pw
+	* p4.c: New file, broken out mpich1/p4 startup code.
+	* Makefile.in mpiexec.h start_tasks.c: Adjust to new p4.c
+	* README: Update pmi notes, mark non-experimental.
+	* mpiexec.c stdio.c mpiexec.h: Print text signal number on bad exit.
+	* stdio.c pmi.c: Count PMI sockets too when deciding to exit stdio.
+	* stdio.c: Switch stdio debug print level to 3.
+
+Wed Mar  9 15:50:40 EST 2005  pw
+	Release 0.78
+	* configure.in configure: Bump version.
+	* pmi.c: Update to mpich2 1.0.1 changes to PMI protocol.
+	* start_tasks.c: Add environment variable for mpich-gm that overrides
+	  default malloc on macosx, from Andrew Gallatin of Myrinet.  Fix
+	  wacky comment style from earlier checkin.
+	* util.c util.h: Add debug() function to make adding pmi.c changes
+	  from branch easier.
+
+Mon Feb 14 14:57:52 EST 2005  pw
+	* start_tasks.c: Do not override environment variables that will
+	  be added by PBS.
+
+Mon Dec  6 10:58:38 EST 2004  pw
+	* stdio.c: Be careful not to close the GM or IB listening socket
+	  mistakenly for stdin.  Avoid close(-1) on listeners.  Add some
+	  fd comments for Mac.
+	* start_tasks.c: Avoid close(-1) on pmi_fd.
+
+Fri Oct 15 16:14:49 EDT 2004  pw
+	* mpiexec.c: Use appropriate signal offset for pbs reporting
+	  convention on darwin, and perhaps other freebsd.
+
+Thu Sep 23 17:05:33 EDT 2004  pw
+	* Makefile.in: Distribute torque patch.
+	* gm.c ib.c: Add include to appease OSX.
+	* stdio.c: Convert error function names.
+
+Wed Sep 22 14:32:35 EDT 2004  pw
+	* stdio.c: Avoid looking at abort fd after it is closed.
+	* runtests.pl: Fix test to find above problem.
+
+Tue Sep 21 08:53:23 EDT 2004  pw
+	Release 0.77
+	* configure.in configure: Bump version.
+	* get_hosts.c wait_tasks.c: Intel compiler warning fixes.
+	* gm.c mpiexec.c mpiexec.h pmi.c start_tasks.c stdio.c: Fix
+	  declarations of globals.
+	* README mpiexec.1: Update documentation.
+
+Mon Sep 20 17:32:17 EDT 2004  pw
+	* stdio.c: Use poll rather than select, thanks to Alex Korobka.
+	  Split PMI functions to new file.
+	* start_tasks.c: Use poll in GM and IB.  Make string sizes less
+	  enormous and comment.  Fix bug in GM of forgetting to put sockets
+	  back to blocking for write. Split IB and GM functions to new
+	  files.  Export only general do_tm_poll() interface.
+	* pmi.c: New file from stdio.c
+	* ib.c gm.c: New files from start_tasks.c
+	* mpiexec.h: Modifications for new files.
+	* config.h.in configure.in configure: Add function test for poll,
+	  with explicit disable.  Check for intel cc.
+	* Makefile.in: Compile new files.
+	* runtests.pl: Catch common error of forgetting to make hello.
+	* wait_tasks.c: Use new do_tm_poll() interface.
+
+Fri Sep 17 18:41:56 EDT 2004  pw
+	* patch/torque-1.1.0p0-mpiexec.diff: Add working torque patch.
+	* README: Update torque-pbs comments.
+
+Fri Aug  6 13:49:24 EDT 2004  pw
+	* start_tasks.c: Add support for mvapich-0.9.4, and fix current 0.9.2
+	  to handle both versioned and unversioned builds.
+	* README: Add comment about mvapich versions supported.
+
+Wed Apr 21 15:08:09 EDT 2004  pw
+	* stdio.c start_tasks.c: Fix some compiler warnings found by PGI.
+
+Mon Apr 19 11:25:17 EDT 2004  pw
+	Release 0.76
+	* configure.in configure: Bump version.
+	* get_hosts.c mpiexec.1 mpiexec.c mpiexec.h start_tasks.c: Implement
+	  -nolocal option per Ron Brightwell patch.
+	* README: Complain that -nolocal is not for mpich/p4.
+	* runtests.pl: Test -nolocal.
+	* mpiexec.spec: Update version, fix comments and configure line.
+	* util.c: Refine %z test to avoid old GCC.
+
+Mon Mar  1 11:02:37 EST 2004  pw
+	* Makefile.in: Pay attention to LDFLAGS.
+	* README: Point out that GNU make is required.
+	* mpiexec.c: Add return values to satisfy SGI MIPS compiler.
+	* start_tasks.c: Add missing header for SGI MIPS compiler.
+	* util.h: Move socklen_t typedef to general header.  Add defines
+	  to work around SGI MIPS compiler issues.
+	* stdio.c: Be careful mixing ints with enums for SGI MIPS compiler.
+
+Wed Feb  4 09:22:04 EST 2004  pw
+	* get_hosts.c: Fix case where ncpus and nodect are both defined.
+
+Tue Feb  3 13:22:49 EST 2004  pw
+	* mpiexec.c: Bundle together identical exit conditions to minimize
+	  warning lines.
+	* hello.c: Add array of exitvals to test new feature.
+
+Tue Feb  3 11:18:13 EST 2004  pw
+	* Makefile.in: Add mom-restart patch to distribution, clean up
+	  autoconf cache.
+	* configure.in: Add --with-default-comm tests for IB, PMI.
+	* configure: Rebuild using autoconf 2.57, was 2.13 before now.
+	* start_tasks.c: Use asynchronous reads in startup barrier for IB.
+	* stdio.c: Keep track of sockaddr, add debug option to track output
+	  speaker.
+	* wait_tasks.c: Show hostnames, not tids, in verbose waiting info.
+
+Thu Dec 18 16:11:00 EST 2003  pw
+	* README: Fix error in --with-pbs description.
+
+Wed Dec 17 11:52:52 EST 2003  pw
+	* runtests.pl: Add warning that PBS will not run jobs for root.
+
+Wed Dec 10 17:56:50 EST 2003  pw
+	* stdio.c: Fix bug for non-PMI users.
+	* mpiexec.c: Make errors about executable not found more precise.
+
+Mon Dec  8 18:00:23 EST 2003  pw
+	* README: Add documentation for MPICH2/PMI support.
+	* config.h.in configure.in configure: Add MPICH2/PMI.
+	* get_hosts.c mpiexec.c mpiexec.h: Ditto.
+	* start_tasks.c: Ditto, and rearrange slightly.
+	* stdio.c: Major new code for PMI messages.
+	* util.c: Read one character at a time to make putback easier.
+
+Fri Dec  5 15:59:24 EST 2003  pw
+	Release 0.75
+	* README: Update documentation for -mpich-p4-no-shmem flag.
+	* config.c: Fix error messages, simplify tasks_shmem_reduce.
+	* config.h.in: Add comment near p4 shmem define.
+	* configure.in configure: Do not complain about --disable-p4-shmem off
+	  or on.  Bump version.
+	* get_hosts.c: Clean up server query.  Major rewrite ncpus/nodect
+	  logic.
+	* hello.c: Segv if MPI_Init fails to cause job cleanup.
+	* hellomp.f: Change program name.
+	* mpiexec.1: Document -mpich-p4-no-shmem.
+	* mpiexec.c: Remove verbose config file info from --help.  Implement
+	  -mpich-p4-[no-]shmem flag.
+	* mpiexec.h: Add flag, remove unused variable.
+	* runtests.pl: Add flag for time-shared PBS nodes.  Fix some comments.
+	  Make it easy to turn off shell tests.
+	* start_tasks.c: Calculate STDIN_ALL connections here.  Move some GM
+	  logic to a common place.
+	* util.c: Handle size_t format properly on gnu compilers.
+
+Wed Oct 29 13:37:16 EST 2003  pw
+	* start_tasks.c mpiexec.1: Add and document environment variable
+	  MPIEXEC_RANK for "none" communication device.  Concept and code
+	  from Jose Luis Gordillo Ruiz and Eduardo Murrieta Leon.
+
+Thu Sep  4 11:27:11 EDT 2003  pw
+	* patch/pbs-2.3.12-mom-restart.diff: Add patch to PBS to
+	  prevent restarted mom coredumps.
+	* README: Explain this mom-restart capability.  Fix some
+	  other misleading language.
+
+Wed Sep  3 13:57:13 EDT 2003  pw
+	* get_hosts.c: Add mom reconnect function.  Some cleanup.
+	* hello.c: Accept nodeid argument to -segv.  Some cleanup.
+	* mpiexec.h: Export reconnect_to_mom, change do_tm_poll type.
+	* start_tasks.c: Move IB startup ports earlier to give to stdio
+	  listener for aborts.  Call reconnect_to_mom if poll fails.
+	  Add version number to IB startup sequence.
+	* stdio.c: Handle IB abort.
+	* util.c util.h: Provide tm warning function.
+	* wait_tasks.c: Be a bit more verbose when killing things off.
+
+Thu Aug 28 11:41:19 EDT 2003  pw
+	* start_tasks.c: Scan and print gm_node_info->node as unsigned
+	  as mpich/gm2 will use all 32 bits of this field.  Found and
+	  fixed by Chris Maestas of sandia.gov.
+
+Thu Aug 21 11:30:07 EDT 2003  pw
+	* get_hosts.c: Fix node-culling error on PBSPro installations
+	  where both ncpus and nodect are set in Resource_List.
+
+Wed Aug 20 18:04:36 EDT 2003  pw
+	* README: Document IB, add new FAQ for mpich/p4 --comm=shared.
+	* config.h.in configure.in configure: Add mpich/ib option.
+	* get_hosts.c: Lookup local host name for mpich/ib.
+	* mpiexec.1: Document IB.
+	* mpiexec.c mpiexec.h: Add -comm option for IB.
+	* stdio.c: Add silent-kill function to get rid of stdio process
+	  during errors.
+	* util.c util.h: Use try_kill_stdio at all errors.  Add read_full
+	  for use by mpich/ib startup.  Fix declarations.
+	* start_tasks.c: Add support for mpich/ib with its socket-based
+	  startup mechanism.
+
+Fri Aug 15 19:28:12 EDT 2003  pw
+	* hellof.f hellomp.f: New test codes, fortran, without and with
+	  openMP directives.
+	* Makefile.in: Build and distribute new files.  Clean up after
+	  them too.
+	* README: Add text about error messages when PBS kills a job.
+	  Document --with-mpif77.
+	* config.h.in configure.in configure: Look for strsignal.  Add option
+	  to find mpif77 compile script.
+	* hello.c: Print out pid, fix comments.
+	* mpiexec.c: Print symbolic signal names for exiting processes.
+	* start_tasks.c: Move process arguments before mpich/p4 arguments
+	  to allow for gdb-in-xterm usage.  Fix warning.
+	* stdio.c: Fix comment.
+
+Mon May  5 11:21:07 EDT 2003  pw
+	Release 0.74
+	* configure.in configure: Bump version.
+	* start_tasks.c: Handle yet another startup change in mpich-gm,
+	  dynamically.  Mpiexec detects the type based on the response it
+	  gets from the initializing spawned processes and adjusts its
+	  behavior accordingly.
+	* stdio.c mpiexec.h: Pass two abort descriptors to stdio listener,
+	  since we do not know which one until after mpich-gm initializes.
+	* runtests.pl: Rearrange top comments and simplify a bit.
+	* get_hosts.c: Fix comment.
+
+Sat May  3 15:43:36 EDT 2003  pw
+	* util.c: Sometimes PBS will return unix error numbers, print these
+	  if so.
+	* stdio.c: Print a more verbose error message.
+	* get_hosts.c: Convert some error messages to use __func__.
+
+Thu Mar 27 18:46:28 EST 2003  pw
+	* README README.lam: Update for new 6.5.8 lam patch.
+	* patch/lam-mpiexec-6.5.8.patch: New patch for lam 6.5.8 from
+	  Mark Hartner of Utah.
+
+Thu Mar 20 17:02:01 EST 2003  pw
+	Release 0.73
+	* configure.in configure: Bump version.
+
+Thu Mar 20 16:59:38 EST 2003  pw
+	* config.h.in configure.in configure start_tasks.c: Add check for
+	  socklen_t.  Add checking messages.
+	* wait_tasks.c: Handle pushed-forward event from failed
+	  initialization.
+
+Thu Mar 20 15:28:26 EST 2003  pw
+	* README: Document --with-sed configure option.
+	* config.h.in: Add defines for --with-sed and __environ.
+	* configure.in configure: Add defaults to help messages.  Implement
+	  --with-sed option.  Search for __environ.  Add more gcc warnings.
+	* get_hosts.c: Convert old -gige kludge to more generic hostname
+	  transformation with external sed-like program.
+	* hello.c: Rearrange to support -segvearly option.
+	* mpiexec.1: Document --transform-hostname.
+	* mpiexec.c mpiexec.h: Implement --transform-hostname.  Reformat usage.
+	* runtests.pl: Test early segv and --transform-hostname.
+	* start_tasks.c: Watch for dying processes while waiting for responses
+	  from nodes in GM and P4 initialization.
+	* stdio.c: Avoid delay when exiting due to failed initialization.
+
+Tue Mar 18 17:15:57 EST 2003  pw
+	* hello.c runtests.pl: Add test for non-zero exitval reporting.
+
+Tue Mar 18 17:11:02 EST 2003  pw
+	* README config.h.in configure.in configure: Remove
+	  --disable-gm-shmem configure option.
+	* mpiexec.1 mpiexec.c start_tasks.c mpiexc.h: Remove -no-shmem
+	  runtime option.
+
+Thu Feb 27 14:28:11 EST 2003  pw
+	* mpiexec.c: Return exit value of task #0.
+	* mpiexec.1: Document it.
+
+Wed Feb 19 13:36:21 EST 2003  pw
+	* mpiexec.1: Add documentation about task exit warnings.
+
+Mon Feb  3 10:22:53 EST 2003  pw
+	Release 0.72.
+	* configure.in: Bump version.
+	* configure: Generated file.
+	* get_hosts.c: Rearrange so that SHMEM works on non-time-shared but
+	  still multi-CPU hosts.
+	* mpiexec.1: Mention shmem device in man page.
+	* README mpiexec.1: Document MPIEXEC_COMM environment variable.
+	* mpiexec.c: Add MPIEXEC_COMM environment variable parsing, simplify.
+	* wait_tasks.c: If any process exits unnaturally, kill all regardless
+	  of setting of "-kill" command-line argument.
+	* Makefile.in: Touch.
+
+Tue Jan  7 14:04:25 EST 2003  pw
+	* README: Add FAQs about mpiexec on scripts, and mpich/p4 command line
+	  arguments.
+
+Thu Nov  7 09:55:24 EST 2002  pw
+	Release 0.71.
+	* cofigure.in: Bump version.
+	* configure: Generated file.
+
+Wed Oct 30 10:45:27 EST 2002  pw
+	* README: Add a few FAQs for compile and runtime problems.
+	* get_hosts.c: Print SHMEM warning only for SHMEM device.
+
+Wed Oct 23 18:39:51 EDT 2002  pw
+	* Makefile.in: Redo install to work around broken sun install program.
+	* README: Add SHMEM device, notes about compilers and hosts TODO.
+	* config.c: Cull numtask properly for SHMEM.
+	* config.h.in: Add SHMEM device.
+	* configure.in: Add SHMEM device, use LDFLAGS to work around broken
+	  sun cc compiler.
+	* configure: Generated file.
+	* get_hosts.c: Add SHMEM device.  Convert some error messages.
+	* hello.c: Avoid core dump from null printf on suns.
+	* mpiexec.c mpiexec.h: Add SHMEM device.  Convert some error messages.
+	* start_tasks.c: Add SHMEM device.
+
+Tue Oct 15 11:30:31 EDT 2002  pw
+	* start_tasks.c: Fix bug when no stdio is connected, and gm
+	  listener was inadvertently closed.
+
+Tue Sep 17 16:45:15 EDT 2002  pw
+	* README: Move historical items away from top.  Talk more about
+	  mpich/p4 and --with-comm=shared.
+	* config.c config.h.in configure.in: Add --disable-p4-shmem for
+	  those that want to use mpich/p4 but do not want its shared
+	  memory support.
+	* configure: Automatically-generated file.
+	* get_hosts.c: Add cast for printf for ia64.
+	* mpiexec.c: Point out that -no-shmem only works for GM.
+
+Mon Sep 16 10:09:57 EDT 2002  pw
+	* Makefile.in: Accept LIBS calculated by configure.
+	* config.c: Do not do case folding in hostname globbing if the
+	  extension is not supported.  Cast isspace() argument to (int)
+	  to avoid warning.
+	* config.h.in: Define (or not) potentially missing headers and
+	  functions.
+	* configure.in: Check for -lsocket and -lnsl for suns.  Only check
+	  headers and functions that can be dealt with in the code.
+	* configure: Automatically-generated file.
+	* get_hosts.c: Add definition for strsep() if missing.
+	* mpiexec.c: Include sun-location of <signal.h>.  Cast getuid to
+	  int just for error printf.
+	* start_tasks.c: Define default path if header file missing (thanks
+	  Ben).
+	* stdio.c: Include sun-location of <signal.h>.
+	* util.h: Hide malloc attribute from older gcc.
+
+Mon Sep  9 17:46:26 EDT 2002  pw
+	* start_tasks.c: Fix SMP problem in new mpich-gm, by Marc Michelsen
+	  <marc@atmos.washington.edu>.
+
+Mon Aug 26 17:38:16 EDT 2002  pw
+	Release 0.70.  This and subsequent versions do not work on mpich-gm
+	less than 1.2.4..8.
+	* gmpiconf.c: Remove.
+	* Makefile.in: Remove gmpiconf.c.
+	* README: Note about mpich-gm change, add warnings for PGI libc.
+	  Add more TODOs.  Complain at length about new mpich-gm.
+	* config.c: Do not close stdin if we did not open it.
+	* config.h.in: Remove SMP_SIZE, MYRI_CARDS, and GM_SHMEM_PATH options.
+	* configure.in: Bump version, remove above options.  Mark shmem path
+	  as no longer configurable.
+	* configure: Update generated file.
+	* get_hosts.c: Remove -perif code.  Gather name and IP address of
+	  starting node.
+	* growstr.c growstr.h: Add init_empty interface to save memory for
+	  sparse use.
+	* hello.c: Loop on argument processing, add -mixup and -abort options
+	  to test new mpiexec functionality.
+	* mpiexec.1: Remove -perif comments and GM configuration file notes.
+	* mpiexec.c: Remove -perif and gm shmem options.  Remove SMP_SIZE.
+	* mpiexec.h: Remove -perif, gm information.  Add myaddr, myname.
+	* runtests.pl: Hard-code $smpsize.  Parse output more flexibly.  Add
+	  abort tests.
+	* start_tasks.c: Replace GM startup code with new more complex variety.
+	* stdio.c: Add process output rearrangement with 1-second timeout, to
+	  attempt to switch only at newlines.  Add support for mpich-gm
+	  MPI_Abort.
+	* util.c: Add read and write looping functions to deal with new
+	  mpich-gm implementation messiness.
+	* util.h: Protect against Intel compilers.
+	* wait_tasks.c: Export kill routine.
+
+Wed Aug 21 16:02:35 EDT 2002  pw
+	Release 0.69.  Last release before major change in GM startup.
+	* config.c get_hosts.c mpiexec.h: Repair minor bug with cull_nodes.
+
+Wed Jul 17 13:27:46 EDT 2002  pw
+	* configure.in configure: Fix --enable-gm-shmem.
+	* README: Explain better that the default is enabled.
+	* start_tasks.c: Repair random comment.
+
+Tue Jun 18 11:15:29 EDT 2002
+	Release 0.68.
+	* Makefile.in: Do not re-specify system include path.
+	* patch/lam-mpiexec-tm-6.6b1.patch: Fix broken waitpid(), from Ben.
+	* configure.in configure: Bump version.
+
+Mon Jun 17 16:34:23 EDT 2002  pw
+	Release 0.67.
+	* Makefile.in: Simplify MPI test program compilation.  Assume there
+	  is a code "mpicc" that does everything.
+	* README: Document the above.  Add some more TODOs.
+	* configure.in configure: Look for --with-mpicc.  Remove __attribute__
+	  define, it is in the code.
+	* start_tasks.c: Remove a const which confuses PGI cc.  Use the right
+	  variable type for len.
+	* util.h: Do not use a handy C9X feature when dealing with PGI cc.
+
+Tue May 28 14:43:42 EDT 2002  pw
+	Release 0.66.
+	* config.c mpiexec.1 mpiexec.c runtests.pl stdio.c: Allow
+	  configuration to be provided on standard input.
+	* config.h.in: Clean comments.
+
+Tue May 28 10:54:12 EDT 2002  pw
+	* lam-mpiexec-tm-6.6b1.patch mpich-1.2.3-alpha-011119-mpiexec.diff
+	  mpich-1.2.3-alpha-020118-mpiexec.diff pbs-2.2.11-mpiexec.diff
+	  pbs-2.3.11-mpiexec.diff pbs-2.3.12-mpiexec.diff: Move to...
+	* patch/lam-mpiexec-tm-6.6b1.patch
+	  patch/mpich-1.2.3-alpha-011119-mpiexec.diff
+	  patch/mpich-1.2.3-alpha-020118-mpiexec.diff
+	  patch/pbs-2.2.11-mpiexec.diff
+	  patch/pbs-2.3.11-mpiexec.diff patch/pbs-2.3.12-mpiexec.diff: here.
+	* README: Change pointers to patch files to new directory.
+
+Tue May 28 10:42:27 EDT 2002  pw
+	* lam-mpiexec-tm.diff lam-mpiexec-tm-6.6b1.patch README.lam: Updated
+	  LAM patch from Ben.
+	* mpiexec.spec: First cut at an RPM spec file from Ben.
+	* Makefile.in: Create install dirs for RPM build.
+	* README: Minor reorganizations.
+	* config.c hello.c stdio.c util.c util.h wait_tasks.c: Hide
+	  __attribute__((unused)) from non-gnu compilers.
+	* mpiexec.c: Remove -gige switch from lam comm.
+	* configure.in configure: Add checks for inline, signal.
+
+Fri May 24 11:56:34 EDT 2002  pw
+	* Makefile.in: Allow install to arbitrary buildroot, per
+	  ben@bellatrix.pcl.ox.ac.uk.  Distribute new files.
+	* runtests.pl: Replace echo -e usage for portability, per
+	  brooks@aero.org.  Add a way to force /bin/sh, and to test
+	  other comms.  Also test all shells.
+	* growstr.c growstr.h: New auto-growing string interface replaces
+	  strlcat etc which were non-portable and bad style.
+	* README.lam lam-mpiexec-tm.diff: Add patch to LAM by Ben which
+	  causes lamboot to use mpiexec for lamd startup.
+	* proc-relations.fig: Include diagrams showing process relationships
+	  on SMP nodes for GM and P4 cases.
+	* configure.in: Bump version and move its defn here, de-disable LAM.
+	* README: Delete old information.
+	* config.c gmpiconf.c mpiexec.c mpiexec.h: Convert to growstr.
+	* config.h.in: Report VERSION.
+	* mpiexec.1: Document --version.
+	* start_tasks.c: Rewrite argv to use specified shell, but work
+	  around weak shells that fail on cd to missing destination.  Convert
+	  to growstr.
+	* stdio.c: Add a bit of debugging.
+	* util.c util.h: Remove unused code.
+
+Mon Jan 21 12:32:41 EST 2002  pw
+	* Makefile.in: Bump version to 0.65, include all mpich patches.
+	* mpich-1.2.3-alpha-mpiexec.diff mpich-1.2.3-alpha-011119-mpiexec.diff
+	  mpich-1.2.3-alpha-020118-mpiexec.diff: Rename mpich patch and make
+	  dependent on release date to avoid distribution renaming problem.
+	* README: Explain improved mpich situation and point out my
+	  PBSPro ignorance.
+	* configure.in: Be more flexible with mpich/p4 or mpich-p4, e.g.
+	* mpiexec.c: Fix absolute path to mean anything with a separator.
+	* start_tasks.c: Pass current working directory explicitly to
+	  mpich/p4, from ben@bellatrix.pcl.ox.ac.uk.
+
+Wed Jan  9 15:14:04 EST 2002  pw
+	* Makefile.in: Bump version to 0.64 and include new PBS patch.
+	* README: Point out PBS patch change.
+
+Thu Jan  3 14:26:47 EST 2002  pw
+	* Makefile.in: Bump verison to 0.63.
+	* mpiexec.c: Catch signals and kill tasks.  Interpret
+	  PBS-modified exit status value properly.
+	* mpiexec.h wait_tasks.c: Track both obit and kill events
+	  in the case of signal.
+
+Mon Dec 31 17:38:19 EST 2001  pw
+	* Makefile.in: Bump version to 0.62.
+	* config.c mpiexec.h: Pass only const char*.
+	* mpiexec.c: Same.  Also allow --np=3 and --np 3, e.g.
+	* configure.in: Do not disable EMP.
+	* mpiexec.1: Explain argument handling change.
+	* start_tasks.c: Add EMP support.
+	* stdio.c: Fix five-second-hang stdio bug.
+	* util.c: Add strlncpy function.
+
+Sun Dec 23 16:39:58 EST 2001  pw
+	* proc-relations.ps: Remove.
+	* mpich-1.2.2.2-mpiexec.diff: Remove.
+	* pbs-12.3.8-mpiexec.diff: Remove.
+	* Makefile.in: Clean up MPI library handling.  Redistribute as 0.61.
+	* README mpiexec.1: Explain recent changes.
+	* config.c get_hosts.c mpiexec.c mpiexec.h start_tasks.c: Replace
+	  compile-time checks of communication library with run-time checks.
+	* config.h.in configure.in: Rename options.
+	* hello.c: Compile with "none" device.
+	* util.h: Mark many functions noreturn.
+
+Sun Dec 23 14:53:58 EST 2001  pw
+	* Makefile.in: Include all source in tags.  Add dependency of hello
+	  on MPI lib, sort of.  Bump version to 0.61.
+	* README: Document mpich/p4 listener problems.
+	* config.c: Add numtask_with_multiplicity.
+	* config.h.in: Change defaults, preparing to expand to multi-comm.
+	* configure.in: Use enable rather than with, add other devices.
+	* get_hosts.c: Remember task[0].
+	* mpich-1.2.3-alpha-mpiexec.diff: Cleanup.
+	* mpiexec.c mpiexec.h: Change num_fg_nodes handling.
+	* start_tasks.c: Allow -allstdin to work with mpich/p4.
+	* stdio.c: Control debugging by -v -v.
+
+Fri Dec 14 17:12:28 EST 2001  pw
+
+	* Makefile.in: Put ChangeLog, not Changes, in distribution.  Add
+	  newest mpich patch too.
+	* mpiexec.c: Fix bad advice about "pbs -I".
+
+Fri Dec 14 16:51:23 EST 2001  pw
+
+	* Makefile.in: Bump version to 0.60.
+	* ChangeLog: Convert from ad-hoc Changes fromat
+	* Changes: Delete.
+	* config.h.in configure.in mpiexec.c start_tasks.c: Add gm-shmem
+	  configure-time option.  Report configure options in usage message.
+	* start_tasks.c: Use gm-shmem options.  Flush "-v" output before
+	  forking.
+	* configure: Update generated file.
+	* README: Document gm-shmem.
+
+mpiexec-0.59  5 Dec 01
+
+    + remove PBS_JOBCOOKIE transfers (allows multiple mpiexec and
+      other output to coexist in same job script)
+    + update pbs patch
+    + update mpich patch
+
+mpiexec-0.58 19 Nov 01
+
+    + major rewrite of stdio handling
+    + further separation of mpich/p4 and mpich/gm
+    + mpich/p4 updates:  it works, but mpich seems buggy
+    + more debugging and tests in test program/script
+    + fix SMP_SIZE==1 bug
+    + streamline task info gathering
+    + reduce RPP_RETRY to something reasonable in pbs patch
+
+mpiexec-0.57 16 Oct 01
+
+    + cause recent GM versions to use shared memory within an SMP
+    + add -no-shmem flag for MPICH/GM for those wishing to turn it off
+    + get rid of FQDN
+    + cleanup docs
+
+mpiexec-0.56 28 Sep 01
+
+    + export all environment variables to spawned tasks
+    + fix bug -lnodes=1:ppn=2 thinks output will have a PBS cookie
+    + support for mpich-p4 in configure stuff, but does not work
+
+mpiexec-0.55 29 Aug 01
+
+    + fix .depend not to be rebuilt all the time
+    + support for Portland group (and other non-gnu) compilers
+    + np >= 10 bug fix in hetero config file parsing
+
+mpiexec-0.54 13 Aug 01
+
+    + add support for pbs-2.3.11
+    + avoid reserved gm port #3 (for ip-over-gm)
+
+mpiexec-0.53 12/28/00
+    
+    + add support for pbs-2.3.8 (aka OpenPBS-2.3 patchlevel 8)
+
+mpiexec-0.52 12/24/00
+    
+    + cleanup configure process a bit
+    + fix stdio startup bug "Connection refused"
+    
+mpiexec-0.51 12/24/00
+    
+    + use GNU configure for build process
+    + heavy cleanup
+
+mpiexec-0.5 12/22/00
+
+    + handle stdout/stderr from all processes
+    + introduce -allstdin to replicate stdin to all processes
+    + rename -bg to -nostdin
+    + more robustness in pbs interface
+
+mpiexec-0.4  7/17/00
+
+    + addition of stdin redirector, -bg flag to disable it, pbs patch to support
+    + catch signals, kill the world
+    + pbs bug fixes in patch
+
+mpiexec-0.3  6/30/00
+
+    + support for "-conf configfile" for heterogeneous jobs
+    + support for -pernode, -perif
+    + added a man page, mpiexec.1
+    + better PBS TM error reporting
+    + toyed with gnu getopt_long, then dumped it
+    + moved $HOME/gmpiconf.<jobid> to $HOME/.gmpiconf.<jobid>
+    + much cleanup
+

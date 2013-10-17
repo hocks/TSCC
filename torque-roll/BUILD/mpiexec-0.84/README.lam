@@ -1,0 +1,110 @@
+LAM/MPI mpiexec support
+
+Ben Webb <ben@bellatrix.pcl.ox.ac.uk>
+    28 May 2002
+    Original 6.6b1 patch and this document
+Mark Hartner <hartner@cs.utah.edu>
+    25 May 2003
+    Port to lam 6.5.8
+
+These patches:
+
+    lam-mpiexec-tm-6.6b1.patch
+    lam-mpiexec-6.5.8.patch
+
+if applied to the 6.6beta1 or 6.5.8, respectively, of LAM/MPI, add a switch
+--with-mpiexec to configure. If specified, then LAM's lamboot utility will use
+mpiexec to start up the LAM system, rather than rsh. (You need to run
+autoheader and autoconf after applying this patch.)  If using LAM from CVS,
+grab instead:
+
+    http://bellatrix.pcl.ox.ac.uk/~ben/pbs/lam-mpiexec-tm-cvs.patch
+
+
+Expect the latter patch to vary frequently as the LAM CVS is updated.  The
+LAM team is working on a generic system services model which will add
+support for multiple methods of booting, and include this patch or a
+variation.
+
+Notes on the design:
+
+	I took this route as while I think it would be possible to
+have mpiexec do the lamboot / mpirun / lamhalt sequence itself, you lose
+the extra functionality that using LAM's tools gives you. (But I see no
+reason why this support could not be added to mpiexec's -comm=lam in the
+future.)
+
+	The patch is non-destructive the code is all #ifdef'd properly, so
+the original LAM behaviour can be recovered by not defining
+LAM_WITH_MPIEXEC, and it adds a suitable configure test to detect an
+installed mpiexec.
+
+
+	Basically, to use LAM at present with rsh/ssh/etc. you first run
+"lamboot", which sets up a lamd daemon on each node. Then you use mpirun
+to run your jobs, and this talks to the lamd daemons. When you're done,
+you use "lamhalt" to shutdown the lamd's. Both mpirun and lamhalt use the
+network of lamd daemons to do their business, so do not need rsh/ssh or
+Mpiexec; it's only lamboot that requires modification.
+
+Currently, lamboot does the following:-
+
+- Set up a listening TCP socket on node 0
+- rsh to each node:
+  - run "hboot" on it, telling it the hostname of node 0, and the
+    listening port number
+  - hboot in turn spawns the "lamd" daemon, which sets up another TCP
+    listening socket, and connects back to node 0
+  - lamboot then accepts the connection from lamd, and receives the
+    port number of lamd's listening socket
+- Once all nodes have been contacted, lamboot's TCP socket is closed
+- lamboot contacts each lamd via. the port received earlier, and tells
+  each one the numbers of the listening ports on every other node
+- lamboot's job is now done; the lamd daemons now have full
+  connectivity, and take over from here.
+
+Essentially, my patch changes this behaviour to:-
+
+- Set up N listening sockets, one for each node in the cluster
+- Create an mpiexec configuration file with the necessary hboot commands
+  for each node
+- Fork and run mpiexec in the background, passing it the configuration file
+- Accept connections from each lamd, and receive a port number from each
+- Contact each lamd in the same way as before.
+
+	I have hacked hboot and lamd such that they do not daemonise, so
+the spawned mpiexec lasts for the duration of the job. Once lamboot is
+completed, lamnodes, mpirun, etc. should work as per normal. When the
+job completes, PBS will kill the mpiexec process and thus the spawned
+lamd's, although you can do this the "proper" way, by running lamhalt,
+which will kill every lamd and thus prompt mpiexec to exit.
+
+	"wipe" is very simple; it just runs "tkill" on each node to kill
+off the lamd process. I don't think you should ever need to do this, as
+just killing mpiexec should kill the spawned lamd's anyway. The patch
+does include code to use mpiexec to run the tkill commands, but it won't
+actually work in practice because MOM won't let mpiexec connect to TM
+twice (and it'll already be connected once, for the lamboot call).
+
+	I haven't touched recon, lamgrow, or lamshrink, so these won't
+work. I don't think they'd be too difficult to fix though, if people
+really really wanted them.
+
+	I've hacked lamboot so that the default boot schema is the PBS
+nodefile, so running a LAM/MPI job via. PBS and Mpiexec should be as
+simple as putting the following in a PBS script:-
+
+lamboot
+mpirun C /path/to/mpi/binary
+lamhalt
+
+CAVEATS:
+
+- This patch is not 100% perfect yet. Obviously.
+- My error handling isn't very robust, so if mpiexec isn't installed, or
+  you feed it garbage, bad things will happen.
+- It'd be nicer if Mpiexec could read a configuration file from stdin,
+  so that I didn't have to mess around with temporary files.
+
+Any suggestions for improvements to this patch, or comments, welcomed...
+

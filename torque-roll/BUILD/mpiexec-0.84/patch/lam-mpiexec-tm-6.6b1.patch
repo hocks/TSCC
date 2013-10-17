@@ -1,0 +1,650 @@
+diff -Xlam.exclude -Nur lam-6.6b1/acconfig.h lam-6.6b1-patched/acconfig.h
+--- lam-6.6b1/acconfig.h	Sun Jul  8 17:48:10 2001
++++ lam-6.6b1-patched/acconfig.h	Thu May 23 18:22:32 2002
+@@ -356,6 +356,16 @@
+ #define LAM_HAVE_BPROC          0
+ 
+ /*
++ * Do we want to use 'mpiexec' for job startup?
++ */
++#define LAM_WITH_MPIEXEC	0
++
++/*
++ * The full path to 'mpiexec'
++ */
++#undef LAM_MPIEXEC
++
++/*
+  * System libraries
+  */
+ #define LAM_SYSLIBS             "bogusness"
+diff -Xlam.exclude -Nur lam-6.6b1/configure.in lam-6.6b1-patched/configure.in
+--- lam-6.6b1/configure.in	Wed Aug  1 20:36:52 2001
++++ lam-6.6b1-patched/configure.in	Thu May 23 18:22:32 2002
+@@ -1218,6 +1218,17 @@
+   SYSLIBS="$SYSLIBS -lbproc"
+ fi
+ 
++AC_ARG_WITH(mpiexec, 
++  [  --with-mpiexec=MPIEXEC  use MPIEXEC for spawning parallel processes])
++if test -z "$with_mpiexec"; then
++  with_mpiexec="no"
++elif test "$with_mpiexec" = "yes"; then
++  AC_PATH_PROG(with_mpiexec, mpiexec)
++  if test "$with_mpiexec" = ""; then
++    AC_MSG_ERROR([Could not find mpiexec.  Cannot continue.])
++  fi
++fi
++
+ if test "$LAM_HAVE_BPROC" != "1" ; then
+   # figure out the remote shell command
+   # if not explicitly specified by the user then
+@@ -1280,8 +1291,15 @@
+   AC_MSG_RESULT([$RSH_COMMAND])
+   AC_DEFINE_UNQUOTED(LAM_RSH, "$RSH_COMMAND")
+ 
++  if test "$with_mpiexec" != "no"; then
++    AC_DEFINE(LAM_WITH_MPIEXEC, 1)
++    AC_DEFINE_UNQUOTED(LAM_MPIEXEC, "$with_mpiexec")
++  fi
+ else # We are a bproc environment.  We really don't want to use rsh...
+   AC_DEFINE_UNQUOTED(LAM_RSH, "/bin/false")
++  if test "$with_mpiexec" != "no"; then
++    AC_MSG_ERROR([cannot use mpiexec with bproc])
++  fi
+ fi
+ 
+ # do we have a broken compiler that does not defined __STDC__ even
+diff -Xlam.exclude -Nur lam-6.6b1/otb/sys/kernel/kernelio.c lam-6.6b1-patched/otb/sys/kernel/kernelio.c
+--- lam-6.6b1/otb/sys/kernel/kernelio.c	Thu Aug  2 00:52:05 2001
++++ lam-6.6b1-patched/otb/sys/kernel/kernelio.c	Thu May 23 18:22:32 2002
+@@ -92,6 +92,7 @@
+ int			kio_fd_ready();		/* get fd_ready */
+ int			kio_recv();		/* recv to internal proc */
+ int			kio_to();		/* register timeout */
++void			kio_shutdown();		/* cleanup */
+ 
+ /*
+  * external functions
+@@ -133,6 +134,7 @@
+ 
+ static struct sockaddr_un
+ 			kernel_un;		/* kernel address */
++static int		shutdown_request;
+ 
+ static struct {
+ 	void		(*kn_func)();		/* interrupt function */
+@@ -144,7 +146,7 @@
+ /*
+  * local functions
+  */
+-static void		kio_shutdown();		/* cleanup and exit */
++static void		handle_sigend(void);
+ 
+ /*
+  *	kio_init
+@@ -190,9 +192,11 @@
+ /*
+  * Create the socket.
+  */
++	i = 1;
+ 	if ((sd_kernel = socket(AF_UNIX, SOCK_STREAM, 0)) < 0)
+ 	  lampanic("lamd kernel: problem with socket()");
+ 
++	setsockopt(sd_kernel, SOL_SOCKET, SO_REUSEADDR, &i, sizeof(i));
+ 	fd_max = sd_kernel;
+ /*
+  * Bind the kernel's address to the socket.
+@@ -227,10 +231,11 @@
+ /*
+  * Catch SIGTERM and SIGINT and kill all attached processes.
+  */
+-	if (_lam_signal(SIGTERM, kio_shutdown) == SIG_ERR)
++	shutdown_request = 0;
++	if (_lam_signal(SIGTERM, handle_sigend) == SIG_ERR)
+ 	  lampanic("lamd kernel: problem with internal call _lam_signal() (2)");
+ 
+-	if (_lam_signal(SIGINT, kio_shutdown) == SIG_ERR)
++	if (_lam_signal(SIGINT, handle_sigend) == SIG_ERR)
+ 	  lampanic("lamd kernel: problem with internal call _lam_signal() (3)");
+ 	
+ 	FD_ZERO(&allfds);
+@@ -282,9 +287,20 @@
+ 		    }
+ 		}
+ 
++		if (shutdown_request) {
++		  request.kq_req = KQSHUTDOWN;
++		  return(&request);
++		}
++		/* N.B. We miss signals that come in right here; we have
++		 * to rely on the timeout to pick them up */
+ 		while (((nfd_ready = select(fd_max + 1, &readfds,
+ 			(fd_set *) 0, (fd_set *) &exceptfds, pto)) < 0) &&
+-			(errno == EINTR));
++			(errno == EINTR && !shutdown_request));
++		if (shutdown_request) {
++		  request.kq_req = KQSHUTDOWN;
++		  return(&request);
++		}
++
+ 		if (nfd_ready < 0) 
+ 		  lampanic("lamd kernel: problem with select() (1)");
+ /*
+@@ -631,19 +647,23 @@
+ 	return(fd_ready);
+ }
+ 
++static void handle_sigend(void)
++{
++  shutdown_request = 1;
++}
++
+ /*
+  *	kio_shutdown
+  *
+- *	Function:	- cleanup and exit
++ *	Function:	- cleanup of IO system
+  */
+-static void
++void
+ kio_shutdown()
+ 
+ {
+ 	kkillall();
+ 	shutdown(sd_kernel, 2);
+ 	kio_cleanup();
+-	exit(0);
+ }
+ 
+ /*
+diff -Xlam.exclude -Nur lam-6.6b1/otb/sys/kernel/kouter.c lam-6.6b1-patched/otb/sys/kernel/kouter.c
+--- lam-6.6b1/otb/sys/kernel/kouter.c	Thu Aug  2 00:52:06 2001
++++ lam-6.6b1-patched/otb/sys/kernel/kouter.c	Thu May 23 18:22:32 2002
+@@ -55,6 +55,7 @@
+ 
+ #include <debug.h>
+ #include <kreq.h>
++#include <preq.h>
+ #include <net.h>
+ #include <terror.h>
+ #include <typical.h>
+@@ -75,6 +76,7 @@
+ extern void		kio_init();
+ extern void		kio_reply();
+ extern void		kio_send();
++extern void		kio_shutdown();
+ extern void		kio_transfer();
+ extern void		kpinsert();
+ extern void		kpdelete();
+@@ -85,6 +87,7 @@
+ /*
+  * local functions
+  */
++static void kqshutdown(void);
+ static void kqattach(struct kproc *pclient, struct kreq *pkq);
+ static void kqdetach(struct kreq *pkq);
+ static void kqsurrender(struct kproc *pclient, struct kreq *pkq);
+@@ -240,7 +243,9 @@
+ /*
+  * Service special or non-client requests.
+  */
+-	    if (pkq->kq_req == KQDETACH) {
++	    if (pkq->kq_req == KQSHUTDOWN) {
++		kqshutdown();
++	    } else if (pkq->kq_req == KQDETACH) {
+ 		kqdetach(pkq);
+ 	    } else if ((pkq->kq_req == KQATTACH) && (pkq->kq_index == -1)) {
+ 		kqattach((struct kproc *) 0, pkq);
+@@ -265,6 +270,31 @@
+ }
+ 
+ /*
++ *	kqshutdown
++ *
++ *	Function:	- cleans up state and exits, in response to a
++ *                        fatal signal
++ */
++static void kqshutdown(void)
++{
++  struct kproc *p;
++
++  lamlog("kouter: shutting down");
++
++  /* Kill any active processes */
++  for (p = pready; p; p = p->kp_next) {
++    knuke(p);
++  }
++
++  /* Free shared memory etc. and then remove the session directory */
++  lam_cleanup_objects();
++  lam_rmsocknamedir();
++
++  kio_shutdown();
++  exit(0);
++}
++
++/*
+  *	kqattach
+  *
+  *	Function:	- attaches a new client process
+diff -Xlam.exclude -Nur lam-6.6b1/share/boot/lambootagent.c lam-6.6b1-patched/share/boot/lambootagent.c
+--- lam-6.6b1/share/boot/lambootagent.c	Thu Aug  2 00:52:24 2001
++++ lam-6.6b1-patched/share/boot/lambootagent.c	Thu May 23 18:22:32 2002
+@@ -91,8 +91,6 @@
+ int
+ lambootagent(struct lamnode *lamnet, int nlamnet, int *nboot, int *nrun)
+ {
+-	int		agent_port;	/* port number for replies */
+-	int		agent_sd;	/* socket for replies */
+ 	int		boot_sd;	/* connection to new node */
+ 	int		cmdc;		/* command vector count */
+ 	int		dlport;
+@@ -105,6 +103,17 @@
+ 	unsigned char	*p;
+ 	char            sep = ' ';
+ 	char            *addr;
++#if LAM_WITH_MPIEXEC
++	int		agent_port[nlamnet];	/* port number for replies */
++	int		agent_sd[nlamnet];	/* socket for replies */
++	char		tmpnam[80];	/* mpiexec config file name */
++	int		tmpfd;
++	FILE		*fp;
++	pid_t		childpid;
++#else
++	int		agent_port;	/* port number for replies */
++	int		agent_sd;	/* socket for replies */
++#endif
+ #if LAM_HAVE_BPROC
+ 	int target_node;
+ #endif
+@@ -123,6 +132,48 @@
+ 	fl_fast = opt_taken('b');
+ 	fl_close = opt_taken('s');
+ 	fl_localname = opt_taken('l');
++
++#ifdef LAM_WITH_MPIEXEC
++/*
++ * Create mpiexec config file.
++ */
++	strcpy(tmpnam, "/tmp/lam-mpiexec.cfg-XXXXXX");
++	tmpfd = mkstemp(tmpnam);
++	if (tmpfd == -1) {
++		perror("Create temporary file failed");
++		exit(1);
++	}
++	fp = fdopen(tmpfd, "w");
++	if (!fp) {
++		perror("Open of temp file failed");
++		exit(1);
++	}
++	if (fl_verbose) {
++		printf("Using mpiexec config file %s\n", tmpnam);
++	}
++#endif
++
++#ifdef LAM_WITH_MPIEXEC
++/*
++ * Allocate server sockets and ports.
++ */
++	for (i = 0; i < nlamnet; i++) {
++	  agent_port[i] = 0;
++	  agent_sd[i] = sfh_sock_open_srv_inet_stm(&agent_port[i]);
++	  if (agent_sd[i] < 0) {
++	    show_help("boot", "socket-fail", NULL);
++	    return(LAMERROR);
++	  }
++/*
++ * Make the sockets close on exec.
++ */
++	  if (fcntl(agent_sd[i], F_SETFD, 1) == -1) {
++	    show_help(NULL, "system-call-fail", "fcntl (set close-on-exec)", 
++		      NULL);
++	    return(LAMERROR);
++	  }
++	}
++#else
+ /*
+  * Allocate a server socket and port.
+  */
+@@ -140,6 +191,8 @@
+ 		    NULL);
+ 	  return(LAMERROR);
+ 	}
++#endif /* LAM_WITH_MPIEXEC */
++
+ /*
+  * Find the local node.
+  */
+@@ -226,7 +279,10 @@
+  * Override the $inet_topo variable.
+  */
+ 
+-#if !LAM_HAVE_BPROC
++#if LAM_WITH_MPIEXEC
++		/* Mpiexec's configuration file needs to be escaped. */
++		sep = '"';
++#elif !LAM_HAVE_BPROC
+ 		/* Since Scyld won't go through a remote shell agent,
+ 		   we don't need to do all this business with shell
+ 		   escaping.  Hence, we only have to do this for
+@@ -258,7 +314,11 @@
+ 			 sep,
+ 			 opt_taken('x') ? "-x " : "",
+ 			 addr,
++#if LAM_WITH_MPIEXEC
++			 agent_port[i],
++#else
+ 			 agent_port,
++#endif
+ 			 i,
+ 			 origin,
+ 			 (strlen(batchid) == 0 ? " " : "-b"),
+@@ -273,6 +333,7 @@
+ 
+ 		(*nboot)++;
+ 
++#if !LAM_WITH_MPIEXEC
+ 		if (i == local) {
+ 		        if (fl_debug) {
+ 			  int j;
+@@ -348,9 +409,80 @@
+  */
+ 		if (close(boot_sd)) return(LAMERROR);
+ 		(*nrun)++;
++#else  /* LAM_WITH_MPIEXEC */
++		/* Write out the Mpiexec configuration for this host */
++		fputs(lamnet[i].lnd_hname, fp);
++		fputs(" :", fp);
++		for (j = 0; j < cmdc; j++) {
++		  fputc(' ', fp);
++		  fputs(cmdv[j], fp);
++		}
++		fputc('\n', fp);
++		argvfree(cmdv);
++#endif /* LAM_WITH_MPIEXEC */
+ 	}
+ 
++#if LAM_WITH_MPIEXEC
++/*
++ * Fire off mpiexec to start the hboot processes.
++ */
++	fclose(fp);
++	cmdc = 0;
++	cmdv = 0;
++	argvadd(&cmdc, &cmdv, LAM_MPIEXEC);
++	argvadd(&cmdc, &cmdv, "-comm=none");
++	argvadd(&cmdc, &cmdv, "-config");
++	argvadd(&cmdc, &cmdv, tmpnam);
++	(void) fflush(stdout);
++	(void) fflush(stderr);
++	childpid = fork();
++	if (childpid == -1) {
++		lamfail("lambootagent fork failed");
++	} else if (childpid == 0) {
++		fclose(stdin);
++		execv(cmdv[0], cmdv);
++		lamfail("execv failed");
++	}
++	argvfree(cmdv);
++	for (i = 0; i < nlamnet; ++i) {
++/*
++ * Skip nodes that are invalid or already booted.
++ */
++		if ((lamnet[i].lnd_nodeid == NOTNODEID) ||
++				!(lamnet[i].lnd_type & NT_BOOT)) continue;
++/*
++ * Accept a connection from the new host.
++ */
++		boot_sd = sfh_sock_accept_tmout(agent_sd[i], LAM_TO_BOOT);
++		if (boot_sd < 0) return(LAMERROR);
++/*
++ * Read the new host port numbers.
++ */
++		if (readcltcoord(boot_sd, &lamnet[i].lnd_bootport,
++				 &dlport)) return(LAMERROR);
++		lamnet[i].lnd_addr.sin_port = htons((unsigned short) dlport);
++/*
++ * Close the host connection.
++ */
++		if (close(boot_sd)) return(LAMERROR);
++		(*nrun)++;
++	}
++
++	if (fl_verbose) {
++		printf("all nodes connected\n");
++	}
++/*
++ * mpiexec must have fired up by now, so we can remove the config file
++ */
++	unlink(tmpnam);
++
++	for (i = 0; i < nlamnet; ++i) {
++		if (close(agent_sd[i])) return(LAMERROR);
++	}
++
++#else
+ 	if (close(agent_sd)) return(LAMERROR);
++#endif /* LAM_WITH_MPIEXEC */
+ 
+ 	if (fl_verbose) {
+ 		nodespin_init("topology");
+diff -Xlam.exclude -Nur lam-6.6b1/share/include/kreq.h lam-6.6b1-patched/share/include/kreq.h
+--- lam-6.6b1/share/include/kreq.h	Thu Aug  2 00:52:17 2001
++++ lam-6.6b1-patched/share/include/kreq.h	Thu May 23 18:22:32 2002
+@@ -110,6 +110,7 @@
+  */
+ #define KQDETACH	7		/* end kernel session */
+ #define KQDUMP		8		/* print process descriptors */
++#define KQSHUTDOWN	9		/* shutdown on signal */
+ 
+ /*
+  * process states
+diff -Xlam.exclude -Nur lam-6.6b1/share/kreq/kcreate.c lam-6.6b1-patched/share/kreq/kcreate.c
+--- lam-6.6b1/share/kreq/kcreate.c	Thu Aug  2 00:52:32 2001
++++ lam-6.6b1-patched/share/kreq/kcreate.c	Thu May 23 18:22:32 2002
+@@ -126,7 +126,14 @@
+ 	sigaction(SIGCHLD, &act, 0);
+ 	sigaction(SIGPIPE, &act, 0);
+ 
++#if !LAM_WITH_MPIEXEC
++/*
++ * We do NOT call setsid when using PBS+Mpiexec; this way PBS can keep track
++ * of the spawned process.
++ */
+ 	(void) setsid();
++#endif
++
+ /*
+  * Redirect the stdio fd's
+  */
+diff -Xlam.exclude -Nur lam-6.6b1/tools/hboot/hboot.c lam-6.6b1-patched/tools/hboot/hboot.c
+--- lam-6.6b1/tools/hboot/hboot.c	Thu Aug  2 00:53:45 2001
++++ lam-6.6b1-patched/tools/hboot/hboot.c	Thu May 23 18:38:02 2002
+@@ -49,6 +49,7 @@
+ #include <stdlib.h>
+ #include <string.h>
+ #include <sys/types.h>
++#include <sys/wait.h>
+ #include <unistd.h>
+ 
+ #include <lam_config.h>
+@@ -125,6 +125,9 @@
+ 	char *target_name;
+ 	int target_node;
+ #endif
++#if LAM_WITH_MPIEXEC
++	int		status;
++#endif
+ 
+ 	/* Ensure that we are not root */
+ 
+@@ -297,7 +300,7 @@
+ 	  exit(errno);
+ 	}
+ 
+-#if 1
++#if !LAM_WITH_MPIEXEC
+ 	/* Comment this out to make the TM extensions to PBS work
+            nicely -- everything will be in one session, so TM can kill
+            it when it dies. */
+@@ -325,6 +328,8 @@
+ 	for (p = al_top(list_psc); p; p = al_next(list_psc, p)) {
+ 		DBUG("hboot: fork %s\n", p->psc_argv[0]);
+ 
++		fflush(stdout);
++		fflush(stderr);
+ 		if ((pid = fork()) < 0) {
+ 		  show_help(NULL, "system-call-fail", "fork", NULL);
+ 		  exit(errno);
+@@ -399,6 +404,30 @@
+ 			sleep((unsigned int) p->psc_delay);
+ 		}
+ 	}
++#if LAM_WITH_MPIEXEC
++/*
++ * When using Mpiexec+PBS, we want the mpiexec spawned by lamboot (the one
++ * that spawned hboot) to last for the duration of the PBS job. Thus, we
++ * don't want to exit hboot until all processes have exited, and so we
++ * wait for them here.
++ */
++ 	do {
++	  fflush(stdout);
++	  fflush(stderr);
++	  do {
++	    pid = wait(&status);
++	  } while (pid == -1 && errno == EINTR);
++	  if (pid > 0 && fl_debug) {
++	    printf("Child pid %d exited ", pid);
++	    if (WIFEXITED(status)) {
++	      printf("with status %d", WEXITSTATUS(status));
++	    } else if (WIFSIGNALED(status)) {
++	      printf("on signal %d", WTERMSIG(status));
++	    }
++	    printf("\n");
++	  }
++	} while (pid > 0);
++#endif
+ 
+ 	return(0);
+ }
+diff -Xlam.exclude -Nur lam-6.6b1/tools/lamboot/lamboot.c lam-6.6b1-patched/tools/lamboot/lamboot.c
+--- lam-6.6b1/tools/lamboot/lamboot.c	Thu Aug  2 00:53:46 2001
++++ lam-6.6b1-patched/tools/lamboot/lamboot.c	Thu May 23 18:22:32 2002
+@@ -273,6 +273,9 @@
+  */
+ 	if (cmdc == 2) {
+ 		fname = cmdv[1];
++#if LAM_WITH_MPIEXEC
++	} else if ((fname = getenv("PBS_NODEFILE"))) {
++#endif
+ 	} else if ((fname = getenv("LAMBHOST"))) {
+ 	} else if ((fname = getenv("TROLLIUSBHOST"))) {
+ 	} else {
+diff -Xlam.exclude -Nur lam-6.6b1/tools/wipe/wipe.c lam-6.6b1-patched/tools/wipe/wipe.c
+--- lam-6.6b1/tools/wipe/wipe.c	Thu Aug  2 00:53:47 2001
++++ lam-6.6b1-patched/tools/wipe/wipe.c	Thu May 23 18:22:32 2002
+@@ -96,6 +96,10 @@
+ 	int		badhost;	/* bad host index */
+ 	int		r, j, success = 1;
+ 	struct lamnode	*lamnet;	/* network description array */
++#if LAM_WITH_MPIEXEC
++	char		tmpnam[80];
++	int		tmpfd;
++#endif
+ 
+ #if LAM_HAVE_BPROC
+ 	int             target_node;    /* Node to _femw() to */
+@@ -207,6 +211,27 @@
+ 	} else {
+ 	  DBUG("wipe: killing LAM from a non-member machine\n");
+ 	}
++
++#if LAM_WITH_MPIEXEC
++/*
++ * Create mpiexec config file.
++ */
++	strcpy(tmpnam, "/tmp/lam-mpiexec.cfg-XXXXXX");
++	tmpfd = mkstemp(tmpnam);
++	if (tmpfd == -1) {
++		perror("Create temporary file failed");
++		exit(1);
++	}
++	fp = fdopen(tmpfd, "w");
++	if (!fp) {
++		perror("Open of temp file failed");
++		exit(1);
++	}
++	if (fl_verbose) {
++		printf("Using mpiexec config file %s\n", tmpnam);
++	}
++#endif
++
+ /*
+  * Build the tkill command.
+  */
+@@ -232,6 +257,46 @@
+ 	  argvadd(&cmdn, &cmdv, "-b");
+ 	  argvadd(&cmdn, &cmdv, batchid);
+ 	}
++
++#if LAM_WITH_MPIEXEC
++/* Write Mpiexec config file */
++	for (i = 0; (i < nlamnet) && limit; ++i) {
++		if (limit > 0) --limit;
++		fputs(lamnet[i].lnd_hname, fp);
++		fputc(' ', fp);
++	}
++	fputc(':', fp);
++	for (i = 0; i < cmdn; i++) {
++		fputc(' ', fp);
++		fputs(cmdv[i], fp);
++	}
++	fputc('\n', fp);
++	argvfree(cmdv);
++	fclose(fp);
++
++/* Run mpiexec */
++	cmdn = 0;
++	cmdv = 0;
++	argvadd(&cmdn, &cmdv, LAM_MPIEXEC);
++        argvadd(&cmdn, &cmdv, "-comm=none");
++        argvadd(&cmdn, &cmdv, "-config");
++        argvadd(&cmdn, &cmdv, tmpnam);
++
++        r = _lam_few(cmdv);
++        unlink(tmpnam);
++
++        if (r) {
++                errno = r;
++                if (errno != EUNKNOWN) {
++                        terror("wipe");
++                } else
++                  show_help(NULL, "unknown", NULL);
++		global_ret = r;
++		success = 0;
++        }
++
++#else
++
+ /*
+  * Loop over all host nodes.
+  */
+@@ -289,6 +354,7 @@
+ 			success = 0;
+ 		}
+ 	}
++#endif /* LAM_WITH_MPIEXEC */
+ 
+ 	if (success) {
+ 	  DBUG("wipe completed successfully\n");
+@@ -329,6 +395,9 @@
+  */
+ 	if (cmdc == 2) {
+ 		bhost = cmdv[1];
++#if LAM_WITH_MPIEXEC
++	} else if ((bhost = getenv("PBS_NODEFILE"))) {
++#endif
+ 	} else if ((bhost = getenv("LAMBHOST"))) {
+ 	} else if ((bhost = getenv("TROLLIUSBHOST"))) {
+ 	} else {

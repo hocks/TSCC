@@ -1,0 +1,365 @@
+diff -ruN pbs-2.3.12-mpiexec/doc/man8/pbs_mom.8B pbs-2.3.12-mom-restart/doc/man8/pbs_mom.8B
+--- pbs-2.3.12-mpiexec/doc/man8/pbs_mom.8B	Tue Aug  8 20:16:28 2000
++++ pbs-2.3.12-mom-restart/doc/man8/pbs_mom.8B	Thu Sep  4 11:10:03 2003
+@@ -320,10 +320,12 @@
+ results in a log file entry. The signal is used to limit the time taken by
+ certain children processes, such as the prologue and epilogue.
+ .IP "SIGINT and SIGTERM"
+-Result in pbs_mom terminating all running children and exiting.  This is the
+-action for the following signals as well: SIGXCPU, SIGXFSZ, SIGCPULIM,
+-and SIGSHUTDN.
+-.IP "SIGPIPE, SIGUSR1, SIGUSR2, SIGINFO"
++Result in pbs_mom exiting without terminating any running jobs.
++This is the action for the following signals as well: SIGXCPU, SIGXFSZ,
++SIGCPULIM, and SIGSHUTDN.
++.IP SIGUSR1
++causes mom to kill all running jobs on the node, then exit.
++.IP "SIGPIPE, SIGUSR1, SIGINFO"
+ are ignored.
+ .LP
+ All other signals have their default behavior installed.
+diff -ruN pbs-2.3.12-mpiexec/src/include/mom_func.h pbs-2.3.12-mom-restart/src/include/mom_func.h
+--- pbs-2.3.12-mpiexec/src/include/mom_func.h	Tue Aug  8 20:17:01 2000
++++ pbs-2.3.12-mom-restart/src/include/mom_func.h	Thu Sep  4 11:10:03 2003
+@@ -134,6 +134,7 @@
+ extern void  mom_freenodes A_((job *));
+ extern void  scan_for_exiting();
+ extern void  scan_for_terminated();
++extern void scan_non_child_tasks(void);
+ extern int   set_job A_((job *, struct startjob_rtn *));
+ extern void  set_globid A_((job *, struct startjob_rtn *));
+ extern int   set_mach_vars A_((job *, struct var_table *));
+diff -ruN pbs-2.3.12-mpiexec/src/resmom/catch_child.c pbs-2.3.12-mom-restart/src/resmom/catch_child.c
+--- pbs-2.3.12-mpiexec/src/resmom/catch_child.c	Tue Aug  8 20:17:56 2000
++++ pbs-2.3.12-mom-restart/src/resmom/catch_child.c	Thu Sep  4 11:10:03 2003
+@@ -699,6 +699,10 @@
+ 		if (pj == NULL)
+ 			continue;
+ 
++		/* set the globid so mom does not coredump in response
++		 * to tm_spawn */
++		set_globid(pj, 0);
++
+ 		append_link(&svr_alljobs, &pj->ji_alljobs, pj);
+ 		job_nodes(pj);
+ 		task_recov(pj);
+diff -ruN pbs-2.3.12-mpiexec/src/resmom/linux/mom_mach.c pbs-2.3.12-mom-restart/src/resmom/linux/mom_mach.c
+--- pbs-2.3.12-mpiexec/src/resmom/linux/mom_mach.c	Tue Sep  5 20:12:46 2000
++++ pbs-2.3.12-mom-restart/src/resmom/linux/mom_mach.c	Thu Sep  4 11:10:03 2003
+@@ -111,6 +111,7 @@
+ #include "job.h"
+ #include "log.h"
+ #include "mom_mach.h"
++#include "mom_func.h"
+ #include "resmon.h"
+ #include "../rm_dep.h"
+ 
+@@ -1052,8 +1053,22 @@
+ 		}
+ 
+ 		if (sesid == ps->session) {
+-			(void)kill(ps->pid, sig);
+-			++ct;
++			if (ps->pid == 0) {
++			    sprintf(log_buffer,
++			      "%s: not killing pid 0 with sig %d",
++			      __func__, sig);
++			    log_record(PBSEVENT_JOB, PBS_EVENTCLASS_JOB,
++			      ptask->ti_job->ji_qs.ji_jobid, log_buffer);
++			} else {
++			    sprintf(log_buffer,
++			      "%s: killing pid %d task %d with sig %d",
++			      __func__, ps->pid, ptask->ti_qs.ti_task, sig);
++			    log_record(PBSEVENT_JOB, PBS_EVENTCLASS_JOB,
++			      ptask->ti_job->ji_qs.ji_jobid, log_buffer);
++
++			    (void)kill(ps->pid, sig);
++			    ++ct;
++			}
+ 		}
+ 	}
+ 	return ct;
+@@ -2187,3 +2202,60 @@
+ 
+ 	return ret_string;
+ }
++
++/*
++ * For a recovering (-p) mom, look through existing tasks in existing
++ * jobs for things that have exited that are not owned by us through a
++ * parent-child relationship.  Otherwise we cannot report back to tm
++ * clients when tasks have exited.
++ */
++void
++scan_non_child_tasks(void)
++{
++    job *job;
++    extern list_head svr_alljobs;
++
++    for (job = GET_NEXT(svr_alljobs); job; job = GET_NEXT(job->ji_alljobs)) {
++	task *task;
++	for (task = GET_NEXT(job->ji_tasks); task;
++	  task = GET_NEXT(task->ti_jobtask)) {
++	    struct dirent *dent;
++	    int found;
++
++	    /* only check on tasks that we think should still be around */
++	    if (task->ti_qs.ti_status != TI_STATE_RUNNING)
++		continue;
++
++	    /* look for processes with this session id */
++	    found = 0;
++	    rewinddir(pdir);
++	    while ((dent = readdir(pdir)) != NULL) {
++		proc_stat_t *ps;
++		if (!isdigit(dent->d_name[0]))
++			continue;
++		ps = get_proc_stat(atoi(dent->d_name));
++		if (!ps)
++		    continue;
++
++		if (ps->session == task->ti_qs.ti_sid) {
++		    ++found;
++		    break;
++		}
++	    }
++	    if (!found) {
++		char buf[1024];
++		extern int exiting_tasks;
++		sprintf(buf,
++		  "found exited session %d for task %d in job %s",
++		  task->ti_qs.ti_sid, task->ti_qs.ti_task, job->ji_qs.ji_jobid);
++		log_event(PBSEVENT_JOB, PBS_EVENTCLASS_JOB, __func__, buf);
++
++		task->ti_qs.ti_exitstat = 0;  /* actually unknown */
++		task->ti_qs.ti_status = TI_STATE_EXITED;
++		task_save(task);
++		exiting_tasks = 1;
++	    }
++	}
++    }
++}
++
+diff -ruN pbs-2.3.12-mpiexec/src/resmom/linux/mom_start.c pbs-2.3.12-mom-restart/src/resmom/linux/mom_start.c
+--- pbs-2.3.12-mpiexec/src/resmom/linux/mom_start.c	Tue Aug  8 20:18:11 2000
++++ pbs-2.3.12-mom-restart/src/resmom/linux/mom_start.c	Thu Sep  4 11:10:03 2003
+@@ -264,7 +264,8 @@
+ 		ptask->ti_qs.ti_exitstat = exiteval;
+ 		ptask->ti_qs.ti_status = TI_STATE_EXITED;
+ 		task_save(ptask);
+-		sprintf(log_buffer, "task %d terminated", ptask->ti_qs.ti_task);
++		sprintf(log_buffer, "%s: task %d terminated, sid %d",
++		  __func__, ptask->ti_qs.ti_task, ptask->ti_qs.ti_sid);
+ 		LOG_EVENT(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB,
+ 			pjob->ji_qs.ji_jobid, log_buffer);
+ 
+diff -ruN pbs-2.3.12-mpiexec/src/resmom/mom_main.c pbs-2.3.12-mom-restart/src/resmom/mom_main.c
+--- pbs-2.3.12-mpiexec/src/resmom/mom_main.c	Mon Jan 15 16:50:22 2001
++++ pbs-2.3.12-mom-restart/src/resmom/mom_main.c	Thu Sep  4 11:10:03 2003
+@@ -181,10 +181,11 @@
+ /* Local Data Items */
+ 
+ static char	*log_file = (char *)0;
+-static int	mom_run_state;
++static enum { MOM_RUN_STATE_RUNNING, MOM_RUN_STATE_EXIT, MOM_RUN_STATE_KILLALL } mom_run_state;
+ static int	call_hup = 0;
+ static int	nconfig;
+ static char	*path_log;
++static int recover = 0;
+ 
+ struct	config_list {
+ 	struct	config		c;
+@@ -232,7 +233,7 @@
+ 
+ /* Local public functions */
+ 
+-void stop_me A_((int));
++static void stop_me A_((int sig));
+ 
+ /* Local private functions */
+ 
+@@ -1542,9 +1543,7 @@
+  *	Kill a job.
+  *	Call with the job pointer and a signal number.
+  */
+-int kill_job(pjob, sig)
+-    job		*pjob;
+-    int		sig;
++int kill_job(job *pjob, int sig)
+ {
+ 	task	*ptask;
+ 	int	ct = 0;
+@@ -1555,10 +1554,15 @@
+ 	ptask = (task *)GET_NEXT(pjob->ji_tasks);
+ 	while (ptask) {
+ 		if (ptask->ti_qs.ti_status == TI_STATE_RUNNING) {
++			log_record(PBSEVENT_JOB, PBS_EVENTCLASS_JOB,
++			  pjob->ji_qs.ji_jobid,
++			  "kill_job found a task to kill");
+ 			ct += kill_task(ptask, sig);
+ 		}
+ 		ptask = (task *)GET_NEXT(ptask->ti_jobtask);
+ 	}
++	log_record(PBSEVENT_JOB, PBS_EVENTCLASS_JOB,
++	  pjob->ji_qs.ji_jobid, "kill_job done");
+ 	return ct;
+ }
+ 
+@@ -1577,6 +1581,9 @@
+ 
+ 	if (termin_child)
+ 		scan_for_terminated();
++	/* if -p, must poll tasks inside jobs to look for completion */
++	if (recover == 2)
++		scan_non_child_tasks();
+ 	if (exiting_tasks)
+ 		scan_for_exiting();	
+ 
+@@ -1771,7 +1778,6 @@
+ 	char		*mom_home;
+ 	task		*ptask;
+ 	char		*ptr;
+-	int	 	recover = 0;
+ 	int		tryport;
+ 	int		rppfd;			/* fd for rm and im comm */
+ 	int		privfd;			/* fd for sending job info */
+@@ -2065,7 +2071,6 @@
+ 	*/
+ 	act.sa_handler = SIG_IGN;
+ 	sigaction( SIGPIPE, &act, NULL);
+-	sigaction( SIGUSR1, &act, NULL);
+ 	sigaction( SIGUSR2, &act, NULL);
+ #ifdef	SIGINFO
+ 	sigaction( SIGINFO, &act, NULL);
+@@ -2101,6 +2106,7 @@
+ 	act.sa_handler = stop_me;	/* shutdown for these */
+ 	sigaction( SIGINT, &act, NULL);
+ 	sigaction( SIGTERM, &act, NULL);
++	sigaction( SIGUSR1, &act, NULL);
+ #ifdef	SIGXCPU
+ 	sigaction(SIGXCPU, &act, NULL);
+ #endif
+@@ -2213,7 +2219,8 @@
+ 	 * section constitutes the "main" loop of MOM
+ 	 */
+ 
+-	for (mom_run_state=1; mom_run_state; finish_loop(wait_time)) {
++	mom_run_state = MOM_RUN_STATE_RUNNING;
++	for (; mom_run_state == MOM_RUN_STATE_RUNNING; finish_loop(wait_time)) {
+ 
+ 		if (call_hup)
+ 			process_hup();
+@@ -2374,25 +2381,27 @@
+ 		}
+ 	}
+ 
+-	/* kill any running jobs */
+-
+-	pjob = (job *)GET_NEXT(svr_alljobs);
+-	while (pjob) {
+-		if (pjob->ji_qs.ji_substate == JOB_SUBSTATE_RUNNING) {
+-			(void)kill_job(pjob, SIGKILL);
+-			pjob->ji_qs.ji_substate = JOB_SUBSTATE_EXITING;
+-			job_save(pjob, SAVEJOB_QUICK);
+-		}
+-		else
+-			term_job(pjob);
+-
+-		pjob = (job *)GET_NEXT(pjob->ji_alljobs);
++	if (mom_run_state == MOM_RUN_STATE_KILLALL) {
++	    /* kill any running jobs */
++	    pjob = (job *)GET_NEXT(svr_alljobs);
++	    while (pjob) {
++		    if (pjob->ji_qs.ji_substate == JOB_SUBSTATE_RUNNING) {
++			    (void)kill_job(pjob, SIGKILL);
++			    pjob->ji_qs.ji_substate = JOB_SUBSTATE_EXITING;
++			    job_save(pjob, SAVEJOB_QUICK);
++		    }
++		    else
++			    term_job(pjob);
++
++		    pjob = (job *)GET_NEXT(pjob->ji_alljobs);
++	    }
++
++	    if (termin_child)
++		    scan_for_terminated();
++	    if (exiting_tasks)
++		    scan_for_exiting();	
+ 	}
+ 
+-	if (termin_child)
+-		scan_for_terminated();
+-	if (exiting_tasks)
+-		scan_for_exiting();	
+ 	(void)mom_close_poll();
+ 
+ 	rpp_shutdown();
+@@ -2427,11 +2436,22 @@
+  * stop_me = signal handler for SIGTERM
+  */
+ 
+-void stop_me(sig)
+-    int	sig;
++static void
++stop_me(int sig)
+ {
+-	sprintf(log_buffer, "caught signal %d", sig);
++	const char *dowhat;
++
++	if (sig == SIGUSR1) {
++	    /* kill all jobs, then exit */
++	    mom_run_state = MOM_RUN_STATE_KILLALL;
++	    dowhat = "killing all jobs then exiting";
++	} else {
++	    /* just exit, leaving jobs running */
++	    mom_run_state = MOM_RUN_STATE_EXIT;
++	    dowhat = "leaving jobs running, just exiting";
++	}
++
++	sprintf(log_buffer, "caught signal %d: %s", sig, dowhat);
+ 	log_record(PBSEVENT_SYSTEM | PBSEVENT_FORCE, PBS_EVENTCLASS_SERVER,
+ 		  msg_daemonname, log_buffer);
+-	mom_run_state = 0;
+ }
+diff -ruN pbs-2.3.12-mpiexec/src/resmom/start_exec.c pbs-2.3.12-mom-restart/src/resmom/start_exec.c
+--- pbs-2.3.12-mpiexec/src/resmom/start_exec.c	Thu Sep  4 11:10:44 2003
++++ pbs-2.3.12-mom-restart/src/resmom/start_exec.c	Thu Sep  4 11:10:03 2003
+@@ -191,8 +191,7 @@
+ }
+ 
+ struct passwd *
+-check_pwd(pjob)
+-	job *pjob;
++check_pwd(job *pjob)
+ {
+ 	struct passwd		*pwdp;
+ 	struct group		*grpp;
+@@ -1490,6 +1489,17 @@
+ 	}
+ 
+ 	/*
++	 * A restarted mom will not have called this yet, but it is needed
++	 * to spawn tasks (ji_grpcache).
++	 */
++	if (!check_pwd(pjob)) {
++	    sprintf(log_buffer, "job %s task %d check_pwd failed",
++	      pjob->ji_qs.ji_jobid, ptask->ti_qs.ti_task);
++	    log_err(-1, id, log_buffer);
++	    return -1;
++	}
++
++	/*
+ 	** Begin a new process for the fledgling task.
+ 	*/
+ 	if ((pid = fork_me(-1)) == -1)
+@@ -1538,7 +1548,9 @@
+ 			pjob->ji_qs.ji_substate = JOB_SUBSTATE_RUNNING;
+ 			job_save(pjob, SAVEJOB_QUICK);
+ 		}
+-		(void)sprintf(log_buffer, "task started, %s", argv[0]);
++		(void)sprintf(log_buffer,
++		  "%s: task started, tid %d, sid %d, cmd %s",
++		  __func__, ptask->ti_qs.ti_task, ptask->ti_qs.ti_sid, argv[0]);
+ 		log_record(PBSEVENT_JOB, PBS_EVENTCLASS_JOB,
+ 			pjob->ji_qs.ji_jobid, log_buffer);
+ 		return 0;
